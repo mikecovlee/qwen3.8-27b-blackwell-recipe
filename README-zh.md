@@ -75,7 +75,8 @@ NVIDIA GPU(sm120,32 GB)     NVFP4 权重 + NVFP4/FP8 KV
 ### 在线(有网机器)
 
 ```bash
-git clone <this-repo> && cd <this-repo>
+git clone https://github.com/mikecovlee/qwen3.8-27b-blackwell-recipe.git
+cd qwen3.8-27b-blackwell-recipe
 make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 # 其他档位:          make online VARIANT=nvfp4  (32 GB,FP4 KV,4 路)
 #                     make online VARIANT=fp8    (32 GB,纯文本,4 路)

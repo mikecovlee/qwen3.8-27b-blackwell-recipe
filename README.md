@@ -82,7 +82,8 @@ The gateway is optional. SGLang alone speaks the OpenAI API at `:8080`.
 ### Online (machine has internet)
 
 ```bash
-git clone <this-repo> && cd <this-repo>
+git clone https://github.com/mikecovlee/qwen3.8-27b-blackwell-recipe.git
+cd qwen3.8-27b-blackwell-recipe
 make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 # other profiles:     make online VARIANT=nvfp4   (4 streams on 32 GB, FP4 KV)
 #                     make online VARIANT=fp8     (32 GB, text only, 4 streams)
