@@ -1,0 +1,88 @@
+# SGLang inference server — FP8 KV cache, text only, HIGH CONCURRENCY (4 streams).
+#
+# The long-running text-only profile: FP8 KV (no FP4 accuracy caveat), vision
+# tower disabled (`language_model_only`), 4 concurrent streams
+# (mrr 4 / mamba pool 16 / graph bs 4), full 262144-token context.
+#
+# Pick this only when you never send images AND want maximum concurrency;
+# otherwise prefer the default kv-fp8-text-image.yml.
+# Full parameter rationale: see the "Tuning" section of the README.
+services:
+  sglang:
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376}
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+      # Fixes a scheduler false-latch in the pinned image (README "The scheduler
+      # false-latch patch").
+      - ./patches/sched-latch-fix:/patches:ro
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/patches
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}
+      - --json-model-override-args
+      - '{"language_model_only": true}'
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --mem-fraction-static
+      - "0.92"
+      - --max-total-tokens
+      - "262144"
+      - --attention-backend
+      - flashinfer
+      - --max-mamba-cache-size
+      - "16"
+      - --mamba-radix-cache-strategy
+      - extra_buffer_lazy
+      - --mamba-ssm-dtype
+      - bfloat16
+      # Zero-cost safety cap on cached mamba states per radix path (matches the
+      # extra_buffer_lazy ping-pong design; required when page_size becomes 64).
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "4"
+      - --cuda-graph-max-bs-decode
+      - "4"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      # Required for the gateway's cache-hit pricing tier.
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+
+volumes:
+  sglang-cache:

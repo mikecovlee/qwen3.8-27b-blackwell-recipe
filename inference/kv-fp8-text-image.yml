@@ -1,0 +1,110 @@
+# SGLang inference server — FP8 KV cache + vision. DEFAULT PROFILE.
+#
+# VALIDATED ON 32 GB (RTX PRO 4500, 2026-09-11): fits the full 262144-token pool
+# WITH the vision tower by rebalancing concurrency off the KV budget:
+#   mrr 2 (not 4) + mamba pool 8 (= mrr x 4-slot budget) + prefill CUDA graph OFF
+#   (measured 0-1% prefill cost, frees 1.19 GB) + mem-fraction 0.94.
+# Boot accounting: KV 8.0 GB, mamba 0.65 GB, ~1.9 GB runtime headroom; cold
+# 166K prefill 87 s with zero retractions.  See README "Tuning" for the math.
+# On 48 GB+ you may raise mrr to 4 with `--max-mamba-cache-size 16 /
+# --cuda-graph-max-bs-decode 4` and drop back to fraction 0.90-0.92 (re-run the
+# soak).  Prefer this profile over NVFP4 KV unless you need 4 streams on 32 GB.
+#
+# The scheduler false-latch patch is mounted here (as in every profile): it only
+# suppresses the latch when a genuinely free row exists, so it is safe at any mrr.
+# Without it, a request arriving while a long chunked prefill is in flight waits
+# out that whole prefill (a transient mrr-1).  See README "The scheduler
+# false-latch patch".
+services:
+  sglang:
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376}
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+      # Fixes a scheduler false-latch in the pinned image (README "The scheduler
+      # false-latch patch").
+      - ./patches/sched-latch-fix:/patches:ro
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      # Reduce fragmentation pressure on the ~1.9 GB runtime headroom.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - PYTHONPATH=/patches
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --attention-backend
+      - flashinfer
+      - --mem-fraction-static
+      - "0.94"
+      - --max-total-tokens
+      - "262144"
+      - --max-mamba-cache-size
+      - "8"
+      - --mamba-radix-cache-strategy
+      - extra_buffer_lazy
+      - --mamba-ssm-dtype
+      - bfloat16
+      # Zero-cost safety cap on cached mamba states per radix path.
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "2"
+      - --cuda-graph-max-bs-decode
+      - "2"
+      # Prefill CUDA graph costs ~1.2 GB and measured 0-1% prefill impact on this
+      # stack (chunked prefill of 2048 tokens is compute-bound, not launch-bound).
+      # Disabling it is what makes FP8 KV + vision + full 262144 fit on 32 GB.
+      - --disable-prefill-cuda-graph
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      # Required for the gateway's cache-hit pricing tier.
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+      # Vision: cap images at 2 Mpx (area) and preprocess on CPU.  Count guard 128 sits
+      # just past the natural ceiling: each 2 Mpx image is ~2050 tokens, so ~127 images
+      # already exhaust the 262144 context (the server rejects with 400 long before any
+      # VRAM issue — GPU peak is flat from 4 to 96 images).  The guard exists ONLY
+      # because it fires before preprocessing; the context check fires after.
+      - --mm-process-config
+      - '{"image": {"size": {"longest_edge": 2097152, "shortest_edge": 65536}}}'
+      - --image-processor-backend
+      - pil
+      - --limit-mm-data-per-request
+      - '{"image": 128, "video": 0}'
+
+volumes:
+  sglang-cache:

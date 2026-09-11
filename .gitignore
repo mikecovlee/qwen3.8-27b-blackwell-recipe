@@ -1,0 +1,18 @@
+# Local secrets & runtime data (never commit)
+.env
+gateway/data/
+gateway/archive/
+
+# Offline bundle (huge; regenerate with scripts/offline/export.sh)
+bundle/
+*.tar
+
+# Model weights (mounted read-only at runtime, never committed)
+models/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

@@ -1,0 +1,97 @@
+# SGLang inference server — NVFP4 KV cache + vision (4 streams on 32 GB).
+#
+# KNOWN OCCASIONAL INSTABILITY: this profile emitted intermittent garbled reasoning in
+# production (token-soup, once a 20000-token runaway) under multi-session churn —
+# see README "NVFP4 caveats".  Use it only if you need 4 streams on 32 GB, or on a
+# 24 GB card, where NVFP4 KV's smaller footprint is the only meaningful option.
+#
+# Serves Qwen3.8-27B with a 262144-token context.  Default / lower-risk profile is
+# kv-fp8-text-image.yml; high-concurrency text-only is kv-fp8-text-only.yml.  Full
+# parameter rationale: see the "Tuning" section of the README.
+services:
+  sglang:
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376}
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+      # Fixes a scheduler false-latch in the pinned image (README "The scheduler
+      # false-latch patch").
+      - ./patches/sched-latch-fix:/patches:ro
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/patches
+      # Required by NVFP4 prefill activation on 32 GB.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}
+      - --kv-cache-dtype
+      - nvfp4
+      - --prefill-attention-backend
+      - flashinfer
+      - --decode-attention-backend
+      - trtllm_mha
+      - --mem-fraction-static
+      - "0.90"
+      - --max-total-tokens
+      - "262144"
+      - --max-mamba-cache-size
+      - "16"
+      - --mamba-radix-cache-strategy
+      - extra_buffer_lazy
+      - --mamba-ssm-dtype
+      - bfloat16
+      # page_size becomes 64 with trtllm_mha; cap mamba states or the pool deadlocks.
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "4"
+      - --cuda-graph-max-bs-decode
+      - "4"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      # Required for the gateway's cache-hit pricing tier.
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+      # Vision: cap images at 2 Mpx (area) and preprocess on CPU.
+      - --mm-process-config
+      - '{"image": {"size": {"longest_edge": 2097152, "shortest_edge": 65536}}}'
+      - --image-processor-backend
+      - pil
+      - --limit-mm-data-per-request
+      - '{"image": 128, "video": 0}'
+
+volumes:
+  sglang-cache:
