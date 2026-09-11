@@ -2,9 +2,9 @@
 
 [English](opencode-config.md)
 
-让 opencode 接入你自己的网关。配置里的 provider id、`baseURL` 和登录命令都引用
-`llm.example.com`,把它换成你自己的网关域名,然后保存为
-`~/.config/opencode/opencode.jsonc`。
+让 opencode 接入你自己的网关。provider id 是 `llm-example-com`、`baseURL` 是
+`https://llm.example.com/v1`,**两者都要换成你自己的**(opencode 的 provider id 不能含
+`.`),然后保存为 `~/.config/opencode/opencode.jsonc`。
 
 ## 配置
 
@@ -12,7 +12,7 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "llm.example.com": {
+    "llm-example-com": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "New API",
       "options": {
@@ -56,7 +56,7 @@
 
 1. 安装 opencode 并启动。
 2. **认证。** 自定义 provider 不在 `/connect` 的 models.dev 列表里,用下面任一方式:
-   - **CLI(推荐):** `opencode auth login -p llm.example.com`(换成*你的*域名),粘贴
+   - **CLI(推荐):** `opencode auth login -p llm-example-com`(换成*你的* id),粘贴
      网关「令牌」页创建的 key(带 `sk-` 前缀)。凭据存于
      `~/.local/share/opencode/auth.json`。
    - **写进配置:** 在 `options` 内加 `"apiKey": "sk-..."`(明文,慎用),或

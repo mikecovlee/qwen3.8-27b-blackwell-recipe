@@ -2,9 +2,9 @@
 
 [中文](opencode-config-zh.md)
 
-Point opencode at your gateway. The provider id, `baseURL` and the login command all
-reference `llm.example.com` — replace it with your own gateway domain, then save the
-result as `~/.config/opencode/opencode.jsonc`.
+Point opencode at your gateway. The provider id is `llm-example-com` and the `baseURL`
+is `https://llm.example.com/v1` — replace **both** with your own (opencode provider ids
+cannot contain dots), then save the result as `~/.config/opencode/opencode.jsonc`.
 
 ## Config
 
@@ -12,7 +12,7 @@ result as `~/.config/opencode/opencode.jsonc`.
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "llm.example.com": {
+    "llm-example-com": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "New API",
       "options": {
@@ -57,8 +57,8 @@ result as `~/.config/opencode/opencode.jsonc`.
 1. Install opencode and launch it.
 2. **Authenticate.** A custom provider id is not in the `/connect` models.dev list, so
    use either:
-   - **CLI (recommended):** `opencode auth login -p llm.example.com` (with *your*
-     domain), then paste a key created on the gateway's **Tokens** page (prefix `sk-`).
+   - **CLI (recommended):** `opencode auth login -p llm-example-com` (with *your*
+     id), then paste a key created on the gateway's **Tokens** page (prefix `sk-`).
      Credentials are stored in `~/.local/share/opencode/auth.json`.
    - **Config:** add `"apiKey": "sk-..."` inside `options` (plaintext, discouraged), or
      `"apiKey": "{env:NEWAPI_API_KEY}"` with `export NEWAPI_API_KEY=sk-...`.
