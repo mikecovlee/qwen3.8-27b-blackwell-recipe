@@ -38,7 +38,7 @@ services:
       - -m
       - sglang.launch_server
       - --model-path
-      - /models/${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}
       - --json-model-override-args
       - '{"language_model_only": true}'
       - --kv-cache-dtype

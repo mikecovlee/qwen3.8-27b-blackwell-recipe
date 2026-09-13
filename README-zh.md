@@ -31,7 +31,7 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 | 磁盘 | 约 90 GB(SGLang 镜像 ~48 GB + 模型 ~22 GB + 网关) |
 | 系统 | 现代 Linux(在 Ubuntu 上开发) |
 | 软件 | Docker Engine、Docker Compose v2、Python 3(仅工具需要) |
-| 模型 | [`RadixArk/Qwen3.8-27B-NVFP4`](https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4)(Apache-2.0) |
+| 模型 | [`nvidia/Qwen3.8-27B-NVFP4`](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4)(Apache-2.0) |
 
 ### 显卡适配
 
@@ -95,7 +95,7 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 ```bash
 cp .env.example .env          # 修改 MODELS_DIR 与 SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
-hf download RadixArk/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-RadixArk-NVFP4"
+hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
@@ -371,5 +371,5 @@ Apache-2.0(见 [LICENSE](LICENSE))。
 [SGLang](https://github.com/sgl-project/sglang)(Apache-2.0)、
 [New API](https://github.com/Calcium-Ion/new-api)(AGPLv3)、
 [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) 与
-[RadixArk/Qwen3.8-27B-NVFP4](https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4)(Apache-2.0)。
+[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4)(Apache-2.0)。
 若把网关对外提供服务,需自行履行合规义务(许可、内容安全、日志留存等)。

@@ -36,7 +36,7 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 | Disk | ~90 GB (SGLang image ~48 GB + model ~22 GB + gateway) |
 | OS | Modern Linux (developed on Ubuntu) |
 | Software | Docker Engine, Docker Compose v2, Python 3 (tools only) |
-| Model | [`RadixArk/Qwen3.8-27B-NVFP4`](https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4) (Apache-2.0) |
+| Model | [`nvidia/Qwen3.8-27B-NVFP4`](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4) (Apache-2.0) |
 
 ### GPU compatibility
 
@@ -105,7 +105,7 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 ```bash
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
-hf download RadixArk/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-RadixArk-NVFP4"
+hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
@@ -421,6 +421,6 @@ This project configures and wraps third-party software; it does not redistribute
 [SGLang](https://github.com/sgl-project/sglang) (Apache-2.0),
 [New API](https://github.com/Calcium-Ion/new-api) (AGPLv3),
 [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) and
-[RadixArk/Qwen3.8-27B-NVFP4](https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4) (Apache-2.0).
+[nvidia/Qwen3.8-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.8-27B-NVFP4) (Apache-2.0).
 If you expose the gateway to third parties, you are responsible for compliance
 (licensing, content safety, logging, etc.).

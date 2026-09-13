@@ -41,7 +41,7 @@ services:
       - -m
       - sglang.launch_server
       - --model-path
-      - /models/${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}
       - --kv-cache-dtype
       - nvfp4
       - --prefill-attention-backend

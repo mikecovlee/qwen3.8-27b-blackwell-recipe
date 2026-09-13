@@ -8,8 +8,8 @@ cd "$ROOT"
 SGLANG_DIGEST="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
 SGLANG_TAG="lmsysorg/sglang:dev-qwen38-27b-dflash2"
 NEWAPI_IMAGE="calciumion/new-api:v1.0.0-rc.36"
-MODEL_REPO="RadixArk/Qwen3.8-27B-NVFP4"
-MODEL_DIR_NAME="Qwen3.8-27B-RadixArk-NVFP4"
+MODEL_REPO="nvidia/Qwen3.8-27B-NVFP4"
+MODEL_DIR_NAME="Qwen3.8-27B-NVFP4"
 
 log() { printf '\033[1;34m[online]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[online] error:\033[0m %s\n' "$*" >&2; exit 1; }

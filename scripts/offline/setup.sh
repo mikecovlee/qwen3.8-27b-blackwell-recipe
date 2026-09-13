@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 BUNDLE="${1:-bundle}"
-MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-RadixArk-NVFP4}"
+MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 
 log() { printf '\033[1;34m[offline]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[offline] error:\033[0m %s\n' "$*" >&2; exit 1; }
