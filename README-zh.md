@@ -21,6 +21,21 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 - **网关**:每用户 key、三档缓存感知计费、主通道故障自动切换到备通道。
 - **可复现**:在线一键安装,离线打包还原。
 
+## 仓库结构与维护约定
+
+本仓库是一切共享产物的唯一权威源:补丁、调度器构建、探针、验收工具、profile 与文档。
+通用内容一律先在这里改;机器本地目录只留机器绑定(绝对路径、本地构建的镜像 tag、
+回滚备份)和不便公开的运维脚本。
+
+- `inference/` —— 各 KV/模态档位的 serve profile,以及 `patches/`(按镜像 digest 归档的
+  调度器补丁库,改镜像前先读它的 README)
+- `inference/tools/acceptance/` —— 升级后验收套件(调度补丁、hicache 挤兑):只在隔离孪生实例上跑,禁止对着生产跑
+- `tools/` —— 独立探针(量化门禁 `probe-bmm-fp8.py`、缓存上报、ruler、并发驱动、gsm8k、质量抽检)
+- `scripts/` —— 在线/离线部署脚本
+
+升级 serve 镜像的固定流程:先过量化门禁探针,再按 `inference/patches/sched-latch-fix/README.md`
+重定补丁锚点,最后在孪生实例上跑完两套验收才能转正。
+
 ## 环境要求
 
 | | |

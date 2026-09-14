@@ -26,6 +26,25 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
   secondary upstream.
 - **Reproducible**: one-click online install, plus an offline bundle workflow.
 
+## Repository layout & maintenance conventions
+
+This repo is the single source of truth for every shared artifact: patches,
+scheduler builds, probes, acceptance tools, profiles and docs. Anything generic is
+edited here first; machine-local directories keep only machine bindings (absolute
+paths, locally built image tags, rollback backups) and private operations scripts.
+
+- `inference/` — serve profiles (one YAML per KV/modality variant) and `patches/` (per-image
+  scheduler patch library, digest-keyed; see its README before changing images)
+- `inference/tools/acceptance/` — post-upgrade acceptance suites (scheduling patches,
+  hicache thrash): run them on an isolated twin, never against live production
+- `tools/` — standalone probes (quant gate `probe-bmm-fp8.py`, cache-report, ruler,
+  concurrency driver, gsm8k, quality spotcheck)
+- `scripts/` — online/offline bring-up
+
+When upgrading the serve image: pass the quant gate probe, re-anchor the scheduler
+patch per `inference/patches/sched-latch-fix/README.md`, then run both acceptance
+suites on a twin before promoting.
+
 ## Requirements
 
 | | |
