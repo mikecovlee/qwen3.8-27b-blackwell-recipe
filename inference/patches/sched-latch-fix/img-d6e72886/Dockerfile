@@ -9,8 +9,9 @@
 # a mounted patch module would never load. site-packages .pth files, on the other
 # hand, are executed during interpreter startup regardless of the system file.
 #
-# Build:  docker build -f Dockerfile.latest -t sglang-latchfix:latest .
-#         (run from this directory; the image stays local unless you push it)
+# Build (context = the sched-latch-fix/ directory):
+#   docker build -f img-d6e72886/Dockerfile -t sglang-latchfix:d6e72886 .
+#   (the image stays local unless you push it somewhere)
 FROM lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
 
 COPY img-d6e72886/sched_latch_fix.py /opt/sglang/lib/python3.12/site-packages/sched_latch_fix.py

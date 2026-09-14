@@ -16,7 +16,7 @@
 # Unlike the b91d664a build, this one VERIFIES its anchor against live source before
 # installing and refuses (loudly) on drift — a mismatched anchor is never silent.
 #
-# Install: baked into a derived image (see ../Dockerfile.latest):
+# Install: baked into a derived image (see ./Dockerfile):
 #   this module -> site-packages, plus a 99-sched-latch-fix.pth line
 #   "import sched_latch_fix". It must NOT import sglang at .pth time (the editable
 #   sglang finder .pth runs after ours), so installation is DEFERRED via a one-shot

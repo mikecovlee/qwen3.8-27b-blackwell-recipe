@@ -19,7 +19,7 @@ services:
       - sglang-cache:/root/.cache
       # Fixes a scheduler false-latch in the pinned image (README "The scheduler
       # false-latch patch").
-      - ./patches/sched-latch-fix:/patches:ro
+      - ./patches/sched-latch-fix/img-b91d664a:/patches:ro
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - MAX_JOBS=4
