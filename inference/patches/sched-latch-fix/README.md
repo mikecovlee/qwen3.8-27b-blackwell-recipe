@@ -6,8 +6,19 @@
 img-<first8-of-image-digest>/   one directory per serve-image digest
   ├─ sitecustomize.py           mount-based build (must keep this exact filename)   → img-b91d664a
   └─ sched_latch_fix.py         baked build (free name, loaded via .pth)            → img-d6e72886
+     sched_lpm_waitfix.py       optional companion: bounded wait under LPM (see below)
      Dockerfile                  derived-image recipe (baked builds only)
 ```
+
+`sched_lpm_waitfix.py` fixes LPM's known starvation gap (upstream sorts by prefix-hit
+length with no aging — a cache-cold request can be overtaken forever while hot
+continuations keep arriving). After each `calc_priority` pass it prepends the N
+longest-waiting requests whose wait exceeds T (same `time.perf_counter` clock as
+`time_stats.wait_queue_entry_time`). Enable per deployment via env:
+`SGLANG_LPM_WAIT_BOOST_SECONDS=<T>` (0/unset = pure LPM), `SGLANG_LPM_WAIT_BOOST_MAX=<N>`
+(1 = one boost per pass, matching the single-chunked-prefill admission budget).
+Active only when the resolved policy is LPM; every internal error degrades to a
+one-time loud warning then no-op. Retire when upstream adds aging/fairness to LPM.
 
 | Serve image (compose `image:`) | Build | How it loads |
 |---|---|---|

@@ -15,4 +15,5 @@
 FROM lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
 
 COPY img-d6e72886/sched_latch_fix.py /opt/sglang/lib/python3.12/site-packages/sched_latch_fix.py
-RUN echo 'import sched_latch_fix' > /opt/sglang/lib/python3.12/site-packages/99-sched-latch-fix.pth
+COPY img-d6e72886/sched_lpm_waitfix.py /opt/sglang/lib/python3.12/site-packages/sched_lpm_waitfix.py
+RUN printf 'import sched_latch_fix\nimport sched_lpm_waitfix\n' > /opt/sglang/lib/python3.12/site-packages/99-sched-latch-fix.pth
