@@ -2,11 +2,18 @@
 """Acceptance: scheduler patches under --schedule-policy lpm on the d6e72886 build.
 
 Verifies both baked patches live, on a real load — designed to be run against an
-ISOLATED twin (docker-compose.test.yml pattern) so production traffic never skews
-the timings:
+ISOLATED test instance so production traffic never skews the timings. Bring one up
+with a two-line compose override alongside your deployment file:
 
-  docker compose -f docker-compose.yml -f docker-compose.test.yml up -d   # twin on :8099
-  python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
+    # test-override.yml
+    services:
+      sglang:
+        container_name: llm-infer-test
+        ports: !override
+          - "8099:8080"
+
+    docker compose -f docker-compose.yml -f test-override.yml up -d
+    python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
 
 T1 sched-latch-fix (false latch, scheduler.py:3661 anchor):
   A big cold prompt forces a long chunked prefill; a small request B is sent ~2.5s
@@ -33,7 +40,6 @@ import urllib.request
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://127.0.0.1:8080/generate")
-ap.add_argument("--model", default=None, help="only for /v1 endpoints; /generate ignores it")
 ap.add_argument("--container", default="llm-infer")
 ap.add_argument("--boost-t", type=float, default=20.0, help="must match SGLANG_LPM_WAIT_BOOST_SECONDS")
 ARGS = ap.parse_args()
@@ -55,12 +61,15 @@ def fire(out, tag, text, max_tok, delay=0.0):
     t0 = time.time()
     try:
         with urllib.request.urlopen(req, timeout=900) as r:
+            got_first = False
+            # Drain to the end: closing early makes the server ABORT the turn,
+            # which would collapse the slot-holding this test depends on.
             for line in r:
-                if line.startswith(b"data:") and b'"text"' in line:
+                if not got_first and line.startswith(b"data:") and b'"text"' in line:
+                    got_first = True
                     with lock:
                         out[tag + "@g"] = round(time.time() - T0, 1)
                         out[tag + "_ttft"] = round(time.time() - t0, 1)
-                    break
         with lock:
             out[tag + "_done"] = round(time.time() - T0, 1)
     except Exception as e:
@@ -114,9 +123,12 @@ for t in hs + [tc, ta2, tb2]:
     t.join(900)
 c2 = patch_counts()
 cg, a2g, b2g = o2.get("Ccold@g"), o2.get("A2hot@g"), o2.get("B2hot@g")
-boosted = (c2[1] - c1[1]) >= 1 or c2[1] >= 3  # log throttle: first 3 lines only
-t2 = all(isinstance(x, float) for x in (cg, a2g, b2g)) and cg < a2g and cg < b2g and boosted
-print(f"T2 boost:  C@{cg} A2@{a2g} B2@{b2g} boost-log {c1[1]}→{c2[1]} (throttle: 前3条+每1000)")
+boost_logged = (c2[1] - c1[1]) >= 1
+boost_throttled = c1[1] >= 3  # first-3 print quota already spent before T2 → silence expected
+t2 = all(isinstance(x, float) for x in (cg, a2g, b2g)) and cg < a2g and cg < b2g \
+    and (boost_logged or boost_throttled)
+print(f"T2 boost:  C@{cg} A2@{a2g} B2@{b2g} boost-log {c1[1]}→{c2[1]}"
+      f"{' (throttled)' if boost_throttled and not boost_logged else ''}")
 print(f"           C TTFT={o2.get('Ccold_ttft')}s (无 boost 预期≈2回合, 有 boost 预期≤T{ARGS.boost_t:.0f}+1回合)")
 
 print(f"\nlatch-log {c0[0]}→{c2[0]} | RESULT:", "PASS" if (t1 and t2) else "FAIL")

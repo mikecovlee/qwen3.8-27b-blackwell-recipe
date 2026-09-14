@@ -6,7 +6,9 @@ FIRST session verbatim and times it. The continuation must come back from the ho
 tier (seconds), not via full re-prefill (tens-to-hundreds of seconds), and the
 engine must log zero retractions/assertions throughout.
 
-Run against an isolated twin:
+Run against an isolated test instance (compose override with a different
+container_name and host port — see verify-scheduling-patches.py docstring for the
+two-line example):
   python3 verify-hicache-thrash.py --url http://localhost:8099/generate --container llm-infer-test
 
 Sizing note: default prompts are tuned for a 262144-token pool (~0.86 token/char on
@@ -41,14 +43,18 @@ def gen(text, max_tok=8):
                        "stream": True}).encode()
     req = urllib.request.Request(ARGS.url, data=body, headers={"Content-Type": "application/json"})
     t0 = time.time()
+    first = None
     try:
+        # Drain to the end: closing early aborts the request server-side, and an
+        # aborted request's prefix is not guaranteed to reach the radix cache —
+        # the eviction pressure and the continuation's cache both depend on it.
         with urllib.request.urlopen(req, timeout=1800) as r:
             for line in r:
-                if line.startswith(b"data:") and b'"text"' in line:
-                    return time.time() - t0
+                if first is None and line.startswith(b"data:") and b'"text"' in line:
+                    first = time.time() - t0
     except Exception as e:
         print(f"request failed: {e}", file=sys.stderr)
-    return None
+    return first
 
 
 unit = ("真hicache挤兑底稿" + str(SALT) + "。")
