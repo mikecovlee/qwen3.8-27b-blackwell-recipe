@@ -24,7 +24,9 @@ T1 sched-latch-fix (false latch, scheduler.py:3661 anchor):
 T2 sched-lpm-waitfix (T=20s N=1 boost):
   two forced-long decodes (ignore_eos) fill both slots; cold C enqueues first, then
   hot continuations A2/B2 (~99% prefix hit) overtake it in LPM order. PASS := C is
-  admitted before both hot overtakers and a boost line was logged.
+  admitted before both hot overtakers (behavioral proof) with the boost hook active
+  in this window — a fresh log line, or silence because the #1-#3 print quota was
+  already spent before this test (see note below).
   Note: boost lines print only for events #1-#3 then every #1000 (throttle by
   design) — do not count log lines as the event counter.
 

@@ -11,7 +11,7 @@ container_name and host port — see verify-scheduling-patches.py docstring for 
 two-line example):
   python3 verify-hicache-thrash.py --url http://localhost:8099/generate --container llm-infer-test
 
-Sizing note: default prompts are tuned for a 262144-token pool (~0.86 token/char on
+Sizing note: default prompts are tuned for a 262144-token pool (~0.9 token/char measured on
 repetitive CJK). Pass --a-chars/--bc-chars scaled to your pool; total ≈ 1.4-1.6× pool
 forces real eviction while staying inside the host tier (hicache ratio).
 Also reports the tier evidence (#cached-token / #new-token of the last prefill) so a
@@ -66,10 +66,10 @@ tA = gen(baseA)
 print(f"A({ARGS.a_chars}c) cold prefill TTFT={tA:.0f}s" if tA else "A 失败")
 tB = gen(uB * (ARGS.bc_chars // len(uB) + 1))
 tC = gen(uC * (ARGS.bc_chars // len(uC) + 1))
-print(f"B TTFT={tB:.0f}s  C TTFT={tC:.0f}s")
+print(f"B TTFT={tB:.0f}s  C TTFT={tC:.0f}s" if (tB is not None and tC is not None) else f"B/C 失败(B={tB}, C={tC})")
 time.sleep(3)
 tD = gen(baseA + "请回答:口令是什么?")
-print(f"D = A 的续传 TTFT={tD:.1f}s")
+print(f"D = A 的续传 TTFT={tD:.1f}s" if tD is not None else "D 失败")
 
 p = subprocess.run(["docker", "logs", "--since", "15m", ARGS.container],
                    capture_output=True, text=True)

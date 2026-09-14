@@ -3,6 +3,8 @@
 
 用法:
   python3 repro-mamba-garble.py [--exposure 600] [--workers 10] [--max-workers 14]
+                                [--outdir DIR] [--filler FILE]
+  Env: SGLANG_BASE(默认 http://127.0.0.1:8080)
 
 阶段:
   0. 校准:启动 N 个"RM 替身"压力 worker(全新随机前缀、非流式、max_tokens 700),
@@ -26,7 +28,7 @@ import threading
 import time
 import urllib.request
 
-BASE = "http://127.0.0.1:8080"
+BASE = os.environ.get("SGLANG_BASE", "http://127.0.0.1:8080").rstrip("/")
 CHAT = BASE + "/v1/chat/completions"
 MODEL = "qwen3.8-27b"
 
