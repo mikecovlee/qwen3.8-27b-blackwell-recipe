@@ -21,21 +21,6 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 - **网关**:每用户 key、三档缓存感知计费、主通道故障自动切换到备通道。
 - **可复现**:在线一键安装,离线打包还原。
 
-## 仓库结构与维护约定
-
-本仓库是一切共享产物的唯一权威源:补丁、调度器构建、探针、验收工具、profile 与文档。
-通用内容一律先在这里改;机器本地目录只留机器绑定(绝对路径、本地构建的镜像 tag、
-回滚备份)和不便公开的运维脚本。
-
-- `inference/` —— 各 KV/模态档位的 serve profile,以及 `patches/`(按镜像 digest 归档的
-  调度器补丁库,改镜像前先读它的 README)
-- `inference/tools/acceptance/` —— 升级后验收套件(调度补丁、hicache 挤兑):只在隔离孪生实例上跑,禁止对着生产跑
-- `tools/` —— 独立探针(量化门禁 `probe-bmm-fp8.py`、缓存上报、ruler、并发驱动、gsm8k、质量抽检)
-- `scripts/` —— 在线/离线部署脚本
-
-升级 serve 镜像的固定流程:先过量化门禁探针,再按 `inference/patches/sched-latch-fix/README.md`
-重定补丁锚点,最后在孪生实例上跑完两套验收才能转正。
-
 ## 环境要求
 
 | | |
@@ -197,10 +182,13 @@ available 1。后果:一个离线"RM 打分"循环——prompt 60~1300 token、�
 不申请新行)被计入 `can_run`,却与按空闲行算出的额度比较,于是双重计数、提前置位
 `batch_is_full`,把实际并发压到 `mrr - 1`。
 
-`inference/patches/sched-latch-fix/sitecustomize.py` 挂到 `/patches` 并经 `PYTHONPATH`
-加载,**三档均挂载**。它只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制该假闩锁
-——因此绝不会过度准入,任何 `mrr` 下都安全。**它按行号 3355 + 函数名匹配**——镜像升级后
-必须复核该行,否则钩子会静默失效(安全:退化为 `mrr - 1`)。
+补丁位于 `inference/patches/sched-latch-fix/`,按钉定镜像一构建一目录(`img-<digest>/`,
+升级流程见其 README)。本仓库 profile 钉定 `b91d664a` 镜像,经 `PYTHONPATH` 挂载
+`/patches` 加载 `img-b91d664a/` 构建,**三档均挂载**。它只在「本 pass 真正的新准入数 <
+pass 起始空闲行数」时抑制该假闩锁——因此绝不会过度准入,任何 `mrr` 下都安全。**它按行号
+3355 + 函数名匹配**——镜像升级后必须复核锚点,否则钩子会静默失效(安全:退化为 `mrr - 1`)。
+较新的构建(如 v0.5.19 线的 `img-d6e72886/`)改为 `.pth` 烘焙进派生镜像,启动时自检锚点、
+漂移即响亮报错,并附带可选的 LPM 超时钉顶模块(`--schedule-policy lpm` 下给冷请求兜底等待上界)。
 
 假闩锁需要存在"正在进行的分块 prefill"——即 prompt 超过 `chunked_prefill_size`(2048)
 被切成多 pass 续传。只有此时,第二路请求**在该 prefill 尚未结束时到达**,才会被压到第一路
@@ -366,7 +354,8 @@ make check     # compose 一致性 + 机密扫描
 │   ├── kv-fp8-text-image.yml       默认:FP8 KV + 视觉(32 GB,mrr 2)
 │   ├── kv-nvfp4-text-image.yml     NVFP4 KV + 视觉(32 GB,mrr 4)
 │   ├── kv-fp8-text-only.yml        FP8 KV,纯文本,4 路(32 GB)
-│   └── patches/sched-latch-fix/    调度器假闩锁修复
+│   ├── patches/sched-latch-fix/    调度器补丁(假闩锁 / LPM 超时钉顶)
+│   └── tools/acceptance/           升级后验收套件
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md

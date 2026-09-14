@@ -26,25 +26,6 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
   secondary upstream.
 - **Reproducible**: one-click online install, plus an offline bundle workflow.
 
-## Repository layout & maintenance conventions
-
-This repo is the single source of truth for every shared artifact: patches,
-scheduler builds, probes, acceptance tools, profiles and docs. Anything generic is
-edited here first; machine-local directories keep only machine bindings (absolute
-paths, locally built image tags, rollback backups) and private operations scripts.
-
-- `inference/` — serve profiles (one YAML per KV/modality variant) and `patches/` (per-image
-  scheduler patch library, digest-keyed; see its README before changing images)
-- `inference/tools/acceptance/` — post-upgrade acceptance suites (scheduling patches,
-  hicache thrash): run them on an isolated twin, never against live production
-- `tools/` — standalone probes (quant gate `probe-bmm-fp8.py`, cache-report, ruler,
-  concurrency driver, gsm8k, quality spotcheck)
-- `scripts/` — online/offline bring-up
-
-When upgrading the serve image: pass the quant gate probe, re-anchor the scheduler
-patch per `inference/patches/sched-latch-fix/README.md`, then run both acceptance
-suites on a twin before promoting.
-
 ## Requirements
 
 | | |
@@ -227,12 +208,18 @@ The pinned SGLang tree has a bug at `scheduler.py:3355`: a chunked-prefill conti
 `can_run`, so it is compared against a budget derived from free rows. This double-counts
 and sets `batch_is_full` early, capping effective concurrency at `mrr - 1`.
 
-`inference/patches/sched-latch-fix/sitecustomize.py` is mounted at `/patches` and loaded
-via `PYTHONPATH` in **all profiles**. It only suppresses the false latch when the real
-number of new admits in a pass is below the free rows at the start of the pass — so it
-never over-admits and is safe at any `mrr`. **It matches on line number 3355 + function
-name** — after any image upgrade, re-check that line or the hook silently no-ops (safe:
-it just falls back to `mrr - 1`).
+The patch lives in `inference/patches/sched-latch-fix/`, organized one build per
+pinned image (`img-<digest>/`; see its README for the upgrade procedure). The
+profiles in this repo pin the `b91d664a` image, which loads `sitecustomize.py` from
+the `img-b91d664a/` build mounted at `/patches` via `PYTHONPATH` in **all profiles**.
+It only suppresses the false latch when the real number of new admits in a pass is
+below the free rows at the start of the pass — so it never over-admits and is safe at
+any `mrr`. **It matches on line number 3355 + function name** — after any image
+upgrade, re-check the anchor or the hook silently no-ops (safe: it just falls back to
+`mrr - 1`). Newer builds (e.g. `img-d6e72886/` for the v0.5.19 line) are baked into a
+derived image via `.pth`, self-verify their anchor at startup and fail loudly on
+drift; they also ship an optional LPM wait-boost companion (bounded cold-request
+queuing under `--schedule-policy lpm`).
 
 The latch needs an in-flight chunked prefill — a prompt longer than
 `chunked_prefill_size` (2048), split across passes. Only then can a second request that
@@ -420,7 +407,8 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 │   ├── kv-fp8-text-image.yml       default: FP8 KV + vision (32 GB, mrr 2)
 │   ├── kv-nvfp4-text-image.yml     NVFP4 KV + vision (32 GB, mrr 4)
 │   ├── kv-fp8-text-only.yml        FP8 KV, text only, 4 streams (32 GB)
-│   └── patches/sched-latch-fix/    scheduler false-latch fix
+│   ├── patches/sched-latch-fix/    scheduler patches (latch, LPM boost)
+│   └── tools/acceptance/           post-upgrade acceptance suites
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md
