@@ -14,6 +14,12 @@ img-<first8-of-image-digest>/   one directory per serve-image digest
 | `lmsysorg/sglang@sha256:b91d664a…` (dev tree `5f55db35`, 2026-08-22) | `img-b91d664a/sitecustomize.py` | bind-mount the dir as `/patches` + `PYTHONPATH=/patches` (all profiles here do this) |
 | `lmsysorg/sglang@sha256:d6e72886…` (= `latest`, tree `0bcd822`, v0.5.19, 2026-09-04) | `img-d6e72886/` | derived image via its `Dockerfile`: module + `99-sched-latch-fix.pth` baked into site-packages |
 
+Transitional copy note: the repo-root `sitecustomize.py` is a byte-identical copy of the
+b91d664a build so that containers created before this restructure (they bind-mount the
+parent dir itself) keep the patch across restarts until the next `docker compose up -d`
+recreates them against `img-b91d664a/`. Safe to delete once no pre-restructure container
+is in use; never edit it in place — the `img-*` dirs are canonical.
+
 Each build pins its anchor in `scheduler.py`: b91d664a → line 3355, d6e72886 → line 3661
 (both the `running_batch.batch_is_full = True` assignment behind the
 `len(adder.can_run_list) >= get_num_allocatable_reqs(...)` check).
