@@ -43,14 +43,17 @@ def command(path):
 # Flags that exist in only one variant (drop flag + its single value).
 DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-attention-backend",
         "--attention-backend", "--mm-process-config",
-        "--image-processor-backend", "--limit-mm-data-per-request"}
+        "--image-processor-backend", "--limit-mm-data-per-request",
+        "--schedule-policy"}
 # Boolean flags that exist in only one variant (no value to consume).
 DROP_BOOL = {"--disable-prefill-cuda-graph"}
 # Flags shared but intentionally different between variants (normalize the value).
 # mrr / mamba pool / graph bs move TOGETHER per profile (three-knob rule, see README
-# Tuning): fp8-text-image runs 2/8/2 on 32 GB, the others 4/16/4.
+# Tuning): fp8-text-image (mainline, v0.5.19 tree) runs 2/10/2 on 32 GB with the
+# extra_buffer strategy; the legacy profiles (old pinned tree) run 4/16/4 + lazy.
 NORM = {"--kv-cache-dtype", "--mem-fraction-static", "--max-running-requests",
-        "--max-mamba-cache-size", "--cuda-graph-max-bs-decode"}
+        "--max-mamba-cache-size", "--cuda-graph-max-bs-decode",
+        "--mamba-radix-cache-strategy"}
 
 def norm(cmd):
     out, i = [], 0

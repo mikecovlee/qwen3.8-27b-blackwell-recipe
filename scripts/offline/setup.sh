@@ -12,6 +12,7 @@ MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 log() { printf '\033[1;34m[offline]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[offline] error:\033[0m %s\n' "$*" >&2; exit 1; }
 
+VARIANT="${VARIANT:-$(cat "${BUNDLE}/VARIANT" 2>/dev/null || true)}"
 VARIANT="${VARIANT:-fp8v}"
 case "$VARIANT" in
   nvfp4) COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
@@ -43,6 +44,16 @@ if [[ ! -f .env ]]; then
   secret="$(openssl rand -hex 32 2>/dev/null || head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   sed -i "s#^SESSION_SECRET=.*#SESSION_SECRET=${secret}#" .env
   sed -i "s#^MODELS_DIR=.*#MODELS_DIR=${HOME}/models#" .env
+fi
+if [[ "$VARIANT" == "fp8v" ]]; then
+  expected_image="llm-infer:latchfix-d6e72886"
+else
+  expected_image="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
+fi
+if grep -q '^SGLANG_IMAGE=' .env; then
+  sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${expected_image}#" .env
+else
+  echo "SGLANG_IMAGE=${expected_image}" >> .env
 fi
 set -a; source .env; set +a
 : "${MODELS_DIR:?set MODELS_DIR in .env}"

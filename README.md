@@ -17,10 +17,11 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 - **Full 262144-token context** resident on a single 32 GB card.
 - Concurrent streams with near-linear batch scaling and zero retractions: 2 by
   default (FP8 KV profile), 4 with the NVFP4 profile.
-- **FP8 KV cache + vision** as the 32 GB default (full 262144-token context, mrr 2,
-  prefill CUDA graph off); **NVFP4 KV + vision** for 4 streams on 32 GB (known
-  occasional garbled-reasoning instability); **FP8 KV text-only** for high-concurrency
-  (4 streams) text-only serving.
+- **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
+  mrr 2, prefill CUDA graph off; v0.5.19 tree + E10 mamba sizing); **NVFP4 KV +
+  vision** for 4 streams on 32 GB (legacy profile, old pinned tree; known occasional
+  garbled-reasoning instability); **FP8 KV text-only** for high-concurrency (4 streams)
+  text-only serving (legacy profile).
 - **Hierarchical KV cache** (host-RAM L2) with fast re-admission after eviction.
 - **Gateway**: per-user keys, 3-tier cache-aware pricing, automatic failover to a
   secondary upstream.
@@ -54,11 +55,14 @@ cards run the same images; pick a config variant by VRAM:
 Why FP8 KV is the 32 GB default now: the KV pool budget is
 `free − fraction slack − mm reservation − mamba pool`, and CUDA graphs are **not** in it
 (captured afterwards, out of the slack). Disabling the prefill CUDA graph (1.19 GB,
-measured 0–1% prefill impact) and rebalancing to mrr 2 / mamba pool 8 makes FP8 KV +
-vision + the full 262144 context fit in 32 GB with ~1.9 GB headroom — zero FP4 KV
-caveats, ~2x decode bandwidth per stream. `kv-nvfp4-text-image` remains for those who
-need 4 streams on 32 GB (KV 8→5 GB, FP4 caveats apply); if you never send images and want
-4 streams, `kv-fp8-text-only` is the long-running text-only high-concurrency profile.
+measured 0–1% prefill impact) and rebalancing to mrr 2 makes FP8 KV + vision + the full
+262144 context fit in 32 GB with ~1.8 GB headroom — zero FP4 KV caveats, ~2x decode
+bandwidth per stream. The mamba pool is 10 on the mainline (E10 sizing = upstream
+ratio 5 × mrr, see [Mamba slot accounting](#mamba-slot-accounting-why-small-offline-requests-saturate-the-card-too));
+the KV pool is capped by `--max-total-tokens`, not by memory, so the +2 slots cost zero
+context. `kv-nvfp4-text-image` remains for those who need 4 streams on 32 GB (KV 8→5 GB,
+FP4 caveats apply); if you never send images and want 4 streams, `kv-fp8-text-only` is
+the long-running text-only high-concurrency profile. Both run on the legacy pinned tree.
 
 ## Architecture
 
@@ -91,9 +95,12 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 
 `make online` runs `scripts/online/setup.sh`, which:
 1. checks docker / GPU / compose,
-2. pulls the pinned SGLang image (digest, with a tag fallback) and the gateway image,
+2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.19
+   base by digest and **builds the patched derived image** `llm-infer:latchfix-d6e72886`
+   from `inference/patches/sched-latch-fix/`; legacy variants: pull the old pinned image
+   (digest, with a tag fallback) — and pulls the gateway image,
 3. downloads the model to `$MODELS_DIR`,
-4. generates `.env` (random `SESSION_SECRET`),
+4. generates `.env` (random `SESSION_SECRET`, `SGLANG_IMAGE` matched to the variant),
 5. starts both services and waits for `/health`.
 
 Then open the gateway at `http://localhost:8088`, create a user and a token, and point
@@ -106,7 +113,12 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
+# mainline (fp8v): pinned v0.5.19 base + baked scheduler patches
+docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
+docker build -f inference/patches/sched-latch-fix/img-d6e72886/Dockerfile \
+  -t llm-infer:latchfix-d6e72886 inference/patches/sched-latch-fix
+# legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
+#   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
@@ -118,7 +130,8 @@ docker compose --env-file .env -f gateway/docker-compose.yml up -d
 On a **networked** machine:
 
 ```bash
-make export          # builds bundle/ : both images, the model, checksums (~70 GB)
+make export          # builds bundle/ : both images (fp8v: the patched derived image),
+                     # the model, checksums (~70 GB); VARIANT= like online
 ```
 
 Copy the whole `bundle/` directory and this repository to the offline host, then:
@@ -136,24 +149,29 @@ services and waits for health.
 Three self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**default**, 32 GB) | `kv-nvfp4-text-image.yml` (32 GB, 4 streams) | `kv-fp8-text-only.yml` (32 GB, 4 streams) |
+| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.19 tree) | `kv-nvfp4-text-image.yml` (legacy, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (legacy, 32 GB, 4 streams) |
 | --- | --- | --- | --- |
+| image (default) | `llm-infer:latchfix-d6e72886` (derived, patches baked via `.pth`) | `lmsysorg/sglang@sha256:b91d664a…` (old pinned tree, `/patches` mount) | same as NVFP4 |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention backend | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
 | vision | enabled | enabled | disabled (`language_model_only`) |
 | image flags | `--mm-process-config`, `--image-processor-backend pil`, guard `image:128` | same | none |
-| mrr / mamba pool / graph bs | **2 / 8 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
+| mrr / mamba pool / graph bs | **2 / 10 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
+| `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
+| `--schedule-policy` | `lpm` + LPM wait-boost env (20 s / 1) | default (`fcfs`) | default (`fcfs`) |
 | `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | none |
-| free VRAM after load (32 GB) | ~1.91 GB | ~2.65 GB | ~0.58 GB |
+| free VRAM after load (32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
 
-**Which one?** Start with **FP8 KV + vision** (default): full 262144 context + vision on
-32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth each).
-Pick **NVFP4 KV + vision** only when you need 4 streams on the same card and accept its
-**occasional garbled-reasoning instability** ([NVFP4 caveats](#nvfp4-caveats)) — or on a
-**24 GB** card, where its smaller KV footprint is the only meaningful option. Pick **FP8
-text-only** if you never send images and want 4 streams. On 48 GB+, raise the default profile to mrr 4 /
-pool 16 / graph 4 and re-enable the prefill graph (fraction back to 0.90-0.92), then
+**Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
+vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
+each), on the v0.5.19 tree with baked-in scheduler patches. Pick **NVFP4 KV + vision**
+(legacy) only when you need 4 streams on the same card and accept its **occasional
+garbled-reasoning instability** ([NVFP4 caveats](#nvfp4-caveats)) — or on a **24 GB**
+card, where its smaller KV footprint is the only meaningful option. Pick **FP8
+text-only** (legacy) if you never send images and want 4 streams. On 48 GB+, raise the
+mainline profile to mrr 4 / pool 20 / graph 4 (pool = 5 × mrr, see
+[Tuning](#tuning)) and re-enable the prefill graph (fraction back to 0.90-0.92), then
 re-run `tools/concurrency-load.py soak`.
 
 ```bash
@@ -175,51 +193,76 @@ All of it was measured on the target card.
 `--max-running-requests` (mrr), `--max-mamba-cache-size` and `--cuda-graph-max-bs-decode`
 must move together:
 
-- The mamba state pool caps concurrency at `max_mamba_cache_size // 4` (4 slots budgeted
-  per request): pool 16 -> mrr 4, pool 20 -> mrr 5.
+- The mamba state pool caps concurrency. Mainline (v0.5.19 tree, `extra_buffer` +
+  overlap schedule): upstream auto-sizes the pool at **5 × mrr** (ratio 5 = 3 base + 2
+  for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The legacy profiles (old
+  pinned tree, `extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
+  mrr 4.
 - The CUDA-graph decode batch size must cover mrr, or larger batches silently fall back
   to eager mode (~60% slower).
-- Default profiles: `kv-fp8-text-image` runs `262144 / mrr 2 / pool 8 / graph 2`
-  (prefill graph disabled); the NVFP4 and text-only profiles run `262144 / 4 / 16 / 4`.
-- On a 96 GB card you can raise all three together (e.g. mrr 6 / pool 24 / graph 8,
-  keeping mrr ≤ pool/4 and graph ≥ mrr). The latch fix has only been validated at 4
-  streams, so re-run `tools/concurrency-load.py` (`t1`, `soak`) before trusting higher
-  values.
+- Default profiles: `kv-fp8-text-image` (mainline) runs `262144 / mrr 2 / pool 10 /
+  graph 2 / extra_buffer` (prefill graph disabled); the legacy NVFP4 and text-only
+  profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` on the old pinned tree.
+- On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
+  graph 8, keeping graph ≥ mrr). The latch fix is validated at mrr 2 in production
+  (v0.5.19 line, 24 h+) and at 4 streams on the legacy tree; re-run
+  `tools/concurrency-load.py` (`t1`, `soak`) before trusting higher values.
 
 ### Mamba slot accounting (why small offline requests saturate the card too)
 
 State slots are charged **per request and per radix path, not per token**: a live request
 holds 1 active + up to 2 checkpoints on its path (track interval 256, capped by
-`--mamba-max-states-per-path 2`) = 2-3 slots, and admission budgets 4 per request.
-Measured: two streams in flight on pool 8 => used 5 / evictable 2 / available 1.
-Consequence: an offline "reward-model scoring" loop - 60-1300-token prompts, generation
-to a 700-token cap, ~30-50 req/min - needs 10-15 streams by Little's law and pins any
-interactive server at full mrr with permanent eviction/reload churn on path states.
-Short requests are cheap on KV and expensive on state.
+`--mamba-max-states-per-path 2`) = 2-3 slots. On the legacy tree admission budgets 4
+per request (measured: two streams in flight on pool 8 => used 5 / evictable 2 /
+available 1).
+
+On the v0.5.19 mainline the unified radix cache adds one more consumer: the **first
+stash of a chunked-prefill request donates an extra slot** to the tree — peak per
+request = own + locked + 1 donated (upstream sizing formula, pinned by its unit test
+`test_mamba_donated_alloc_ratio.py`). Under `extra_buffer_lazy` the allocator budgets
+only 2 slots per request, so a tight pool hits `assert slot is not None` ("Can not alloc
+mamba cache") and takes the scheduler down — observed once in production (2026-09-15:
+two streams holding 6/8 slots, a 150K chunked prefill admitted on the 2 freed slots,
+its stash needing a 9th). The **E10 fix** (mainline since): `extra_buffer` (budgets 3,
+admission rejects and queues instead of over-committing) + pool **10** = upstream
+ratio 5 × mrr 2. Measured on the mainline: dual-stream peak uses 8/10, leaving exactly
+the 2-slot stash headroom. Regression gate:
+`inference/tools/acceptance/verify-mamba-stash.py` (evidence:
+`evidence/mamba-stash-T3-0915/`).
+
+Consequence (unchanged): an offline "reward-model scoring" loop - 60-1300-token prompts,
+generation to a 700-token cap, ~30-50 req/min - needs 10-15 streams by Little's law and
+pins any interactive server at full mrr with permanent eviction/reload churn on path
+states. Short requests are cheap on KV and expensive on state.
 Operational rule: run offline/batch workloads under their **own gateway token** with
-**client-side concurrency <= 2** (or off-peak). The fp8v default (mrr 2 / pool 8 =
-exactly 2 x the 4-slot admission budget) additionally makes slot exhaustion
-structurally unreachable for interactive traffic.
+**client-side concurrency <= 2** (or off-peak).
 
 ### The scheduler false-latch patch
 
-The pinned SGLang tree has a bug at `scheduler.py:3355`: a chunked-prefill continuation
-(which already holds a request row and does not allocate a new one) is counted in
-`can_run`, so it is compared against a budget derived from free rows. This double-counts
-and sets `batch_is_full` early, capping effective concurrency at `mrr - 1`.
+Both pinned SGLang trees have the same false-latch bug (legacy `b91d664a` at
+`scheduler.py:3355`; v0.5.19 `d6e72886` at `scheduler.py:3661`): a chunked-prefill
+continuation (which already holds a request row and does not allocate a new one) is
+counted in `can_run`, so it is compared against a budget derived from free rows. This
+double-counts and sets `batch_is_full` early, capping effective concurrency at
+`mrr - 1`.
 
 The patch lives in `inference/patches/sched-latch-fix/`, organized one build per
-pinned image (`img-<digest>/`; see its README for the upgrade procedure). The
-profiles in this repo pin the `b91d664a` image, which loads `sitecustomize.py` from
-the `img-b91d664a/` build mounted at `/patches` via `PYTHONPATH` in **all profiles**.
-It only suppresses the false latch when the real number of new admits in a pass is
-below the free rows at the start of the pass — so it never over-admits and is safe at
-any `mrr`. **It matches on line number 3355 + function name** — after any image
-upgrade, re-check the anchor or the hook silently no-ops (safe: it just falls back to
-`mrr - 1`). Newer builds (e.g. `img-d6e72886/` for the v0.5.19 line) are baked into a
-derived image via `.pth`, self-verify their anchor at startup and fail loudly on
-drift; they also ship an optional LPM wait-boost companion (bounded cold-request
-queuing under `--schedule-policy lpm`).
+pinned image (`img-<digest>/`; see its README for the upgrade procedure). The mainline
+`kv-fp8-text-image` profile pins the **derived image `llm-infer:latchfix-d6e72886`**
+(built from `img-d6e72886/`): patches are baked in via a `.pth` import — the v0.5.19
+base ships a system `sitecustomize.py` that silently shadows the old
+`PYTHONPATH=/patches` mount trick — they **self-verify their anchor at startup and fail
+loudly on drift**, and they include the LPM wait-boost companion, enabled by default in
+the profile (`--schedule-policy lpm` + `SGLANG_LPM_WAIT_BOOST_SECONDS=20` /
+`SGLANG_LPM_WAIT_BOOST_MAX=1`: a cold request waiting > 20 s jumps the LPM queue once —
+ordering only, adds no capacity; set the env to 0 to disable). The legacy profiles still
+pin `b91d664a` and load `img-b91d664a/sitecustomize.py` from the `/patches` mount
+(**matches on line number 3355 + function name** — after any image upgrade re-check the
+anchor or the hook silently no-ops; safe: it just falls back to `mrr - 1`).
+
+Both builds share the suppression rule: only suppress the false latch when the real
+number of new admits in a pass is below the free rows at the start of the pass — so it
+never over-admits and is safe at any `mrr`.
 
 The latch needs an in-flight chunked prefill — a prompt longer than
 `chunked_prefill_size` (2048), split across passes. Only then can a second request that
@@ -240,8 +283,11 @@ directly. Measured 2026-09-11: FP8 KV + vision + mrr 2 profiled to 242337 tokens
 fraction 0.90 with the prefill graph on; disabling that graph (1.19 GB; measured 0-1%
 prefill impact - chunked prefill at 2048 tokens is compute-bound, not launch-bound) plus
 fraction 0.94 recovered the full 262144 with ~1.9 GB runtime headroom (cold 166K prefill:
-87 s, zero retractions). The pool and cold-prefill headroom remain a 1:1 trade
-(table below measured with NVFP4 KV / mrr 4, same shape):
+87 s, zero retractions). E10 re-validation (2026-09-15, mamba pool 8→10 = +0.16 GB):
+the KV pool is **flag-capped, not memory-capped** — ~0.7 GB of static slack absorbs the
+extra slots, KV still allocates the full 262144, headroom after graph capture ~1.78 GB,
+cold 166K prefill re-measured at 87.1 s. The pool and cold-prefill headroom remain a
+1:1 trade (table below measured with NVFP4 KV / mrr 4, same shape):
 
 | `max-total-tokens` | free VRAM | cold prefill | 4 concurrent |
 | --- | --- | --- | --- |
@@ -285,9 +331,19 @@ the only meaningful option.
   on 32 GB, or on a 24 GB card where it is the only meaningful variant.
 - **`page_size` becomes 64 with `trtllm_mha`**, after which the default
   `--mamba-max-states-per-path -1` lets mamba states accumulate per radix path, filling
-  the 16-slot pool and deadlocking new allocations (container restart). Both variants set
+  the 16-slot pool and deadlocking new allocations (container restart). All profiles set
   `--mamba-max-states-per-path 2` (a zero-VRAM behavioral cap that matches the
-  `extra_buffer_lazy` ping-pong design). Always re-run a soak test after changing the KV recipe.
+  extra-buffer ping-pong design; kept at 2 on the mainline `extra_buffer` too — note it
+  bounds *tree* checkpoints only, not live request slots). Always re-run a soak test
+  after changing the KV recipe.
+- **v0.5.19 + `extra_buffer_lazy` + pool 8 could assert-crash the scheduler** ("Can not
+  alloc mamba cache") when a chunked-prefill stash needed a donated slot from a tight
+  pool with no evictable victim (observed once in production, 2026-09-15). Fixed by E10:
+  the mainline runs `extra_buffer` (allocator budgets 3/request; admission rejects and
+  queues instead of over-committing) + pool 10 (upstream ratio 5 × mrr 2). The assert
+  itself is upstream fail-loud design (still present on main). Regression gate:
+  `inference/tools/acceptance/verify-mamba-stash.py`, evidence in
+  `evidence/mamba-stash-T3-0915/`.
 - **`--mm-process-config` uses pixel *area*, not edge length.** `image.max_pixels` is
   ignored by this processor build; use `image.size.longest_edge` (2097152 = 2 Mpx area).
 - **Images need `--image-processor-backend pil`.** The GPU image processor resizes all
@@ -319,7 +375,7 @@ Measured on the target card (RTX PRO 4500, 32 GB, sm120). Full results in
 | batch 4 @48K | 118.6 | 128.2 tok/s |
 | soak 600 s | 106 req / 0 err | 106 req / 0 err |
 
-### FP8 KV + vision on 32 GB (current default profile, 2026-09-11)
+### FP8 KV + vision on 32 GB (pool-8 baseline, 2026-09-11)
 
 | Check | Result |
 | --- | --- |
@@ -330,6 +386,20 @@ Measured on the target card (RTX PRO 4500, 32 GB, sm120). Full results in
 | mamba slots, 2 streams in flight | used 5 / evictable 2 / available 1 (pool 8) |
 | images (2 Mpx each) | 1-96 pass, GPU peak flat; 128 rejected by the context window |
 | quality spot check | all pass incl. 104K needle |
+
+### E10 re-validation (mainline: v0.5.19, `extra_buffer`, pool 10, 2026-09-15)
+
+| Check | Result |
+| --- | --- |
+| boot accounting | KV 8.0 GB / 262144 tokens **unchanged** (flag-capped) + mamba 0.80 GB; 2.43 GB free after pools, ~1.78 GB after graph capture |
+| T3 stash-crash matrix (`verify-mamba-stash.py --expect safe`) | 153K chunked prefill: avail ≥ 2/10 throughout, zero forced evictions, zero restarts |
+| single-stream decode | 43.1 tok/s @1K; 38.8 @64K (TTFT 18.7 s) |
+| dual-stream decode (engine-side, bs-2 graph) | 69.7 tok/s median, zero retractions |
+| cold 166K prefill | 87.1 s (vs 87.3 s at pool 8) |
+| cache-hit billing (second shot) | 99.4% cached, TTFT 0.13 s |
+| 150K × 2 contention | zero retractions/asserts (the second 150K queues by design: 300K > 262144 pool) |
+| T1/T2 scheduling patches | PASS (latch interleave + wait-boost ordering) |
+| 9.5 h production soak | mamba peak 8/10 at dual stream, zero asserts, zero restarts |
 
 ### Throughput vs context
 
@@ -404,11 +474,12 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── LICENSE                     Apache-2.0
 ├── Makefile  .env.example
 ├── inference/
-│   ├── kv-fp8-text-image.yml       default: FP8 KV + vision (32 GB, mrr 2)
-│   ├── kv-nvfp4-text-image.yml     NVFP4 KV + vision (32 GB, mrr 4)
-│   ├── kv-fp8-text-only.yml        FP8 KV, text only, 4 streams (32 GB)
-│   ├── patches/sched-latch-fix/    scheduler patches (latch, LPM boost)
-│   └── tools/acceptance/           post-upgrade acceptance suites
+│   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
+│   │                               v0.5.19 tree, E10: extra_buffer + pool 10)
+│   ├── kv-nvfp4-text-image.yml     legacy: NVFP4 KV + vision (32 GB, mrr 4, old pinned tree)
+│   ├── kv-fp8-text-only.yml        legacy: FP8 KV, text only, 4 streams (old pinned tree)
+│   ├── patches/sched-latch-fix/    scheduler patches (latch, LPM wait-boost)
+│   └── tools/acceptance/           acceptance suites (T1/T2 scheduling, T3 mamba stash)
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md

@@ -14,9 +14,10 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 
 - 单张 32 GB 卡**常驻完整 262144 token 上下文**。
 - 并发流近线性扩展、零 retraction:默认 2 路(FP8 KV 档),NVFP4 档 4 路。
-- **FP8 KV + 视觉**为 32 GB 默认档(满 262144 上下文、mrr 2、关 prefill CUDA graph);
-  **NVFP4 KV + 视觉**用于 32 GB 上需要 4 路并发的场景(已知偶发 reasoning 乱码不稳定);
-  **FP8 KV 纯文本**用于高并发(4 路)纯文本场景。
+- **FP8 KV + 视觉**为 32 GB 主线默认档(满 262144 上下文、mrr 2、关 prefill CUDA graph;
+  v0.5.19 树 + E10 mamba 定容);**NVFP4 KV + 视觉**用于 32 GB 上需要 4 路并发的场景
+  (legacy 档,旧钉定树;已知偶发 reasoning 乱码不稳定);**FP8 KV 纯文本**用于高并发
+  (4 路)纯文本场景(legacy 档)。
 - **分层 KV 缓存**(主机内存 L2),驱逐后重载极快。
 - **网关**:每用户 key、三档缓存感知计费、主通道故障自动切换到备通道。
 - **可复现**:在线一键安装,离线打包还原。
@@ -48,10 +49,13 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 
 为什么 32 GB 上 FP8 KV 现在是默认:KV 池预算 = `free − fraction slack − mm 预留 − mamba 池`,
 而 **CUDA graph 不在这个公式里**(图在池之后捕获,花的是 slack)。关掉 prefill CUDA graph
-(1.19 GB,实测 prefill 影响 0~1%)并把并发改为 mrr 2 / mamba 池 8 后,FP8 KV + 视觉 +
-满 262144 上下文能在 32 GB 内落地,还剩 ~1.9 GB 余量——彻底不需要 FP4 KV,且每流 decode
-带宽约翻倍。需要 4 路并发的 32 GB 卡仍可选 `kv-nvfp4-text-image`(KV 8→5 GB,FP4 注意事项
-见下);不需要图片且要高并发时用 `kv-fp8-text-only`。
+(1.19 GB,实测 prefill 影响 0~1%)并把并发改为 mrr 2 后,FP8 KV + 视觉 +
+满 262144 上下文能在 32 GB 内落地,还剩 ~1.8 GB 余量——彻底不需要 FP4 KV,且每流 decode
+带宽约翻倍。主线 mamba 池为 10(E10 定容 = 上游 ratio 5 × mrr,见
+[mamba 槽计价](#mamba-槽计价为什么小的离线请求也能打满整卡));KV 池被
+`--max-total-tokens` 钉住而非被内存钉住,因此 +2 槽不损失任何上下文。需要 4 路并发的
+32 GB 卡仍可选 `kv-nvfp4-text-image`(KV 8→5 GB,FP4 注意事项见下);不需要图片且要高并发时用
+`kv-fp8-text-only`。两者都跑在 legacy 钉定树上。
 
 ## 架构
 
@@ -83,8 +87,11 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 ```
 
 `make online` 调用 `scripts/online/setup.sh`,依次:检查 docker / GPU / compose →
-拉取钉定的 SGLang 镜像(digest,失败回退 tag)与网关镜像 → 下载模型到 `$MODELS_DIR`
-→ 生成 `.env`(随机 `SESSION_SECRET`)→ 启动服务并等待 `/health`。
+按变体准备 SGLang 镜像——`fp8v`(默认):按 digest 拉取钉定的 v0.5.19 基座并**构建烘焙补丁的
+派生镜像** `llm-infer:latchfix-d6e72886`(来自 `inference/patches/sched-latch-fix/`);
+legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网关镜像 → 下载模型到
+`$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,`SGLANG_IMAGE` 与变体匹配)→
+启动服务并等待 `/health`。
 
 然后打开网关 `http://localhost:8088`,创建用户与令牌,把客户端指向它——见
 [`gateway/opencode-config.md`](gateway/opencode-config.md)。
@@ -96,7 +103,12 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 cp .env.example .env          # 修改 MODELS_DIR 与 SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
+# 主线(fp8v):钉定 v0.5.19 基座 + 烘焙调度补丁
+docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
+docker build -f inference/patches/sched-latch-fix/img-d6e72886/Dockerfile \
+  -t llm-infer:latchfix-d6e72886 inference/patches/sched-latch-fix
+# legacy 变体(nvfp4 / fp8 纯文本)改为拉取旧钉定树:
+#   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
@@ -108,7 +120,8 @@ docker compose --env-file .env -f gateway/docker-compose.yml up -d
 先在**有网**机器上:
 
 ```bash
-make export          # 生成 bundle/:两个镜像、模型、校验和(约 70 GB)
+make export          # 生成 bundle/:两个镜像(fp8v 为烘焙补丁的派生镜像)、模型、
+                     # 校验和(约 70 GB);VARIANT= 开关同 online
 ```
 
 把整个 `bundle/` 目录与本仓库拷到离线机器,然后:
@@ -125,21 +138,27 @@ make offline BUNDLE=/path/to/bundle
 `inference/` 下有三个各自完整可读的 compose 文件,除下表所列外参数完全一致
 (`make check` 会强制校验这一点)。
 
-| 参数 | `kv-fp8-text-image.yml`(**默认**,32 GB) | `kv-nvfp4-text-image.yml`(32 GB,4 路) | `kv-fp8-text-only.yml`(32 GB,4 路) |
+| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.19 树) | `kv-nvfp4-text-image.yml`(legacy,32 GB,4 路) | `kv-fp8-text-only.yml`(legacy,32 GB,4 路) |
 | --- | --- | --- | --- |
+| 镜像(默认) | `llm-infer:latchfix-d6e72886`(派生,补丁经 `.pth` 烘焙) | `lmsysorg/sglang@sha256:b91d664a…`(旧钉定树,`/patches` 挂载) | 同 NVFP4 |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention 后端 | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
 | 视觉 | 开 | 开 | 关(`language_model_only`) |
 | 图像参数 | `--mm-process-config`、`--image-processor-backend pil`、护栏 `image:128` | 同左 | 无 |
-| mrr / mamba 池 / graph bs | **2 / 8 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
+| mrr / mamba 池 / graph bs | **2 / 10 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
+| `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
+| `--schedule-policy` | `lpm` + LPM 超时钉顶 env(20 s / 1) | 默认(`fcfs`) | 默认(`fcfs`) |
 | `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | 无 |
-| 启动后显存余量(32 GB) | ~1.91 GB | ~2.65 GB | ~0.58 GB |
+| 启动后显存余量(32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
 
-**怎么选?** 先用 **FP8 KV + 视觉**(默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
-代价是 2 路并发(每流 decode 带宽约翻倍)。同一张卡需要 4 路并发、且接受其**偶发 reasoning 乱码不稳定**([NVFP4 注意事项](#nvfp4-注意事项))时才选 **NVFP4 KV + 视觉**;24 GB 卡上它是唯一有意义的选择;
-从不发图片且要高并发选 **FP8 纯文本**。48 GB+ 可把默认档上调为 mrr 4 / 池 16 / graph 4 并重开
-prefill 图(fraction 回调 0.90~0.92),然后重跑 `tools/concurrency-load.py soak`。
+**怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
+代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.19 树 + 烘焙调度补丁上。同一张卡需要
+4 路并发、且接受其**偶发 reasoning 乱码不稳定**([NVFP4 注意事项](#nvfp4-注意事项))时才选
+**NVFP4 KV + 视觉**(legacy);24 GB 卡上它是唯一有意义的选择;从不发图片且要高并发选
+**FP8 纯文本**(legacy)。48 GB+ 可把主线档上调为 mrr 4 / 池 20 / graph 4(池 = 5 × mrr,
+见[调优要点](#调优要点))并重开 prefill 图(fraction 回调 0.90~0.92),然后重跑
+`tools/concurrency-load.py soak`。
 
 ```bash
 make up                   # 默认:FP8 KV + 视觉,mrr 2(32 GB)
@@ -158,37 +177,59 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
 `--max-running-requests`(mrr)、`--max-mamba-cache-size`、`--cuda-graph-max-bs-decode`
 必须一起改:
 
-- mamba 状态池把并发钳制在 `max_mamba_cache_size // 4`(每请求预算 4 槽):池 16 → mrr 4,池 20 → mrr 5。
+- mamba 状态池钳制并发。主线(v0.5.19 树,`extra_buffer` + overlap 调度):上游自动定容为
+  **5 × mrr**(ratio 5 = 基础 3 + overlap 2),即池 10 → mrr 2、池 20 → mrr 4。legacy 档
+  (旧钉定树,`extra_buffer_lazy`)按每请求 4 槽预算(`池 // 4`):池 16 → mrr 4。
 - CUDA graph 的 decode batch 必须覆盖 mrr,否则大 batch 会静默回退 eager(慢约 60%)。
-- 默认档:`kv-fp8-text-image` = `262144 / mrr 2 / 池 8 / graph 2`(并关 prefill 图);
-  NVFP4 与纯文本档 = `262144 / 4 / 16 / 4`。
-- 96 GB 卡可以三个旋钮同步上调(如 mrr 6 / 池 24 / graph 8,满足 mrr ≤ 池/4 且 graph ≥ mrr)。
-  但闩锁修复只在 4 流上验证过,上调后务必用 `tools/concurrency-load.py`(`t1`、`soak`)复测再信任。
+- 默认档:`kv-fp8-text-image`(主线)= `262144 / mrr 2 / 池 10 / graph 2 / extra_buffer`
+  (并关 prefill 图);legacy 的 NVFP4 与纯文本档 = `262144 / 4 / 16 / 4 / extra_buffer_lazy`
+  (旧钉定树)。
+- 96 GB 卡可以三个旋钮同步上调(主线 ratio:mrr 6 / 池 30 / graph 8,保持 graph ≥ mrr)。
+  闩锁修复已在 v0.5.19 线的 mrr 2 上生产验证(24h+),legacy 树在 4 流上验证过;再上调务必用
+  `tools/concurrency-load.py`(`t1`、`soak`)复测后再信任。
 
 ### mamba 槽计价(为什么"小"的离线请求也能打满整卡)
 
 状态槽**按请求、按 radix 路径计价,不按 token**:一条运行中的请求占 1 active +
 路径上至多 2 个 checkpoint(track 间隔 256,受 `--mamba-max-states-per-path 2` 封顶)
-= 2~3 槽,而准入按每请求 4 槽预算。实测:池 8 上双流进行中 used 5 / evictable 2 /
-available 1。后果:一个离线"RM 打分"循环——prompt 60~1300 token、生成顶满 700、
+= 2~3 槽。legacy 树上准入按每请求 4 槽预算(实测:池 8 上双流进行中 used 5 /
+evictable 2 / available 1)。
+
+v0.5.19 主线的 unified radix cache 多了一个消费者:**chunked prefill 请求的首次 stash
+会向树捐赠一个额外槽**——每请求峰值 = own + locked + 1 donated(上游 sizing 公式,由其
+单测 `test_mamba_donated_alloc_ratio.py` 钉死)。`extra_buffer_lazy` 下分配器只按每请求
+2 槽预算,池吃紧时会撞上 `assert slot is not None`("Can not alloc mamba cache")把调度器
+打崩——生产实际发生过一次(2026-09-15:双流占 6/8 槽,150K chunked prefill 在释放出的
+2 槽上被准入,其 stash 需要第 9 槽)。**E10 修复**(此后为主线):`extra_buffer`
+(预算 3,准入拒绝排队而非超额承诺)+ 池 **10** = 上游 ratio 5 × mrr 2。主线实测:双流
+峰值用 8/10,恰好留下 2 槽 stash 余量。回归门禁:
+`inference/tools/acceptance/verify-mamba-stash.py`(证据:`evidence/mamba-stash-T3-0915/`)。
+
+后果(不变):一个离线"RM 打分"循环——prompt 60~1300 token、生成顶满 700、
 30~50 req/min——按 Little 定律需要 10~15 路并发,足以把任何交互服务钉死在满 mrr,
 并让路径状态持续处于"驱逐→换入"扰动中。**短请求在 KV 上便宜,在状态槽上昂贵。**
-运维规则:离线/批量任务用**独立令牌 + 客户端并发 ≤2**(或错峰)。fp8v 默认档
-(mrr 2 / 池 8 = 恰好 2×4 槽准入预算)进一步让交互流量的槽耗尽结构性不可达。
+运维规则:离线/批量任务用**独立令牌 + 客户端并发 ≤2**(或错峰)。
 
 ### 调度器假闩锁热修
 
-钉定的 SGLang 树在 `scheduler.py:3355` 有个 bug:chunked prefill 的续传(已持有请求行、
+两棵钉定的 SGLang 树都有同一个假闩锁 bug(legacy `b91d664a` 在 `scheduler.py:3355`;
+v0.5.19 `d6e72886` 在 `scheduler.py:3661`):chunked prefill 的续传(已持有请求行、
 不申请新行)被计入 `can_run`,却与按空闲行算出的额度比较,于是双重计数、提前置位
 `batch_is_full`,把实际并发压到 `mrr - 1`。
 
 补丁位于 `inference/patches/sched-latch-fix/`,按钉定镜像一构建一目录(`img-<digest>/`,
-升级流程见其 README)。本仓库 profile 钉定 `b91d664a` 镜像,经 `PYTHONPATH` 挂载
-`/patches` 加载 `img-b91d664a/` 构建,**三档均挂载**。它只在「本 pass 真正的新准入数 <
-pass 起始空闲行数」时抑制该假闩锁——因此绝不会过度准入,任何 `mrr` 下都安全。**它按行号
-3355 + 函数名匹配**——镜像升级后必须复核锚点,否则钩子会静默失效(安全:退化为 `mrr - 1`)。
-较新的构建(如 v0.5.19 线的 `img-d6e72886/`)改为 `.pth` 烘焙进派生镜像,启动时自检锚点、
-漂移即响亮报错,并附带可选的 LPM 超时钉顶模块(`--schedule-policy lpm` 下给冷请求兜底等待上界)。
+升级流程见其 README)。主线 `kv-fp8-text-image` 档钉定**派生镜像
+`llm-infer:latchfix-d6e72886`**(由 `img-d6e72886/` 构建):补丁经 `.pth` import 烘焙——
+v0.5.19 基座自带的系统 `sitecustomize.py` 会静默遮蔽旧的 `PYTHONPATH=/patches` 挂载法——
+启动时**自检锚点、漂移即响亮报错**,并含 LPM 超时钉顶伴生模块,主线档默认启用
+(`--schedule-policy lpm` + `SGLANG_LPM_WAIT_BOOST_SECONDS=20` / `SGLANG_LPM_WAIT_BOOST_MAX=1`:
+等待超过 20 s 的冷请求一次性跳到 LPM 队首——只改顺序、不加容量;env 设 0 即禁用)。
+legacy 档仍钉定 `b91d664a`,经 `/patches` 挂载加载 `img-b91d664a/sitecustomize.py`
+(**按行号 3355 + 函数名匹配**——镜像升级后必须复核锚点,否则钩子静默失效;安全:退化为
+`mrr - 1`)。
+
+两个构建共享同一条抑制规则:只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制
+假闩锁——因此绝不会过度准入,任何 `mrr` 下都安全。
 
 假闩锁需要存在"正在进行的分块 prefill"——即 prompt 超过 `chunked_prefill_size`(2048)
 被切成多 pass 续传。只有此时,第二路请求**在该 prefill 尚未结束时到达**,才会被压到第一路
@@ -204,8 +245,10 @@ prefill 结束(瞬时 `mrr - 1`),停滞时长等于该 prefill 的时长。同�
 图开销就直接决定池大小。2026-09-11 实测:FP8 KV + 视觉 + mrr 2 在 0.90 + prefill 图开启
 时 profiled 只有 242337;关掉该图(1.19 GB,实测 prefill 影响 0~1%——2048 token 的
 chunked prefill 是计算受限而非启动受限)并把 fraction 提到 0.94,池恢复满额 262144,
-还剩 ~1.9 GB 余量(166K 冷 prefill 87s、零 retraction)。池与冷 prefill 余量仍是
-1:1 交换(下表为 NVFP4 KV / mrr 4 时期的测量,规律相同):
+还剩 ~1.9 GB 余量(166K 冷 prefill 87s、零 retraction)。E10 复验(2026-09-15,mamba
+池 8→10 = +0.16 GB):KV 池被 **flag 钉住而非内存钉住**——约 0.7 GB 静态 slack 吸收了
+新增槽位,KV 仍分配满额 262144,图捕获后余量 ~1.78 GB,166K 冷 prefill 复测 87.1 s。
+池与冷 prefill 余量仍是 1:1 交换(下表为 NVFP4 KV / mrr 4 时期的测量,规律相同):
 
 | `max-total-tokens` | 显存余量 | 冷 prefill | 4 并发 |
 | --- | --- | --- | --- |
@@ -240,9 +283,16 @@ token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占
 - **NVFP4 KV 档偶发 reasoning 乱码**(间歇性,生产环境实际遇到;见 [NVFP4 注意事项](#nvfp4-注意事项))。
   仅在需要 32 GB 上 4 路并发、或 24 GB 卡上(此时是唯一有意义的选择)时使用。
 - **`trtllm_mha` 会把 `page_size` 改成 64**,此后默认的 `--mamba-max-states-per-path -1`
-  会让 mamba 状态沿 radix 路径无限囤积、占满 16 槽池并锁死新分配(容器重启)。两个版本都设
-  `--mamba-max-states-per-path 2`(零显存成本的行为限制,与 `extra_buffer_lazy` 乒乓槽位设计吻合)。
+  会让 mamba 状态沿 radix 路径无限囤积、占满 16 槽池并锁死新分配(容器重启)。三档都设
+  `--mamba-max-states-per-path 2`(零显存成本的行为限制,与 extra-buffer 乒乓槽位设计吻合;
+  主线 `extra_buffer` 下同样保留 2——注意它只封顶**树上** checkpoint,不管在飞请求的活槽)。
   **每次改动 KV 配方后务必跑 soak。**
+- **v0.5.19 + `extra_buffer_lazy` + 池 8 可能把调度器断言打崩**("Can not alloc mamba
+  cache"):chunked prefill 的 stash 在池吃紧且无可驱逐牺牲者时需要一个捐赠槽(生产实际
+  发生一次,2026-09-15)。已由 E10 修复:主线跑 `extra_buffer`(分配器按每请求 3 槽预算,
+  准入拒绝排队而非超额承诺)+ 池 10(上游 ratio 5 × mrr 2)。断言本身是上游 fail-loud 设计
+  (main 分支今天仍在)。回归门禁:`inference/tools/acceptance/verify-mamba-stash.py`,
+  证据见 `evidence/mamba-stash-T3-0915/`。
 - **`--mm-process-config` 用的是像素「面积」而非边长**。本版处理器忽略 `image.max_pixels`,
   必须用 `image.size.longest_edge`(2097152 = 2 Mpx 面积)。
 - **图片需要 `--image-processor-backend pil`**。GPU 处理器会一次性把所有图 resize 成 fp32
@@ -270,7 +320,7 @@ token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占
 | batch 4 @48K | 118.6 | 128.2 tok/s |
 | soak 600 s | 106 req / 0 err | 106 req / 0 err |
 
-### FP8 KV + 视觉 @32 GB(当前默认档,2026-09-11)
+### FP8 KV + 视觉 @32 GB(池 8 基线,2026-09-11)
 
 | 检查项 | 结果 |
 | --- | --- |
@@ -281,6 +331,20 @@ token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占
 | mamba 槽,双流进行中 | used 5 / evictable 2 / available 1(池 8) |
 | 图片(2 Mpx/张) | 1~96 全过、GPU 峰值恒定;128 被上下文窗口拒绝 |
 | 质量 spot check | 全过(含 104K 单针) |
+
+### E10 复验(主线:v0.5.19、`extra_buffer`、池 10,2026-09-15)
+
+| 检查项 | 结果 |
+| --- | --- |
+| 启动账 | KV 8.0 GB / 262144 token **不变**(flag 钉住)+ mamba 0.80 GB;池分配后余 2.43 GB,图捕获后 ~1.78 GB |
+| T3 stash 崩溃矩阵(`verify-mamba-stash.py --expect safe`) | 153K chunked prefill 全程 avail ≥ 2/10、零强制驱逐、零重启 |
+| 单流 decode | 43.1 tok/s @1K;38.8 @64K(TTFT 18.7 s) |
+| 双流 decode(引擎侧,bs-2 graph) | 中位 69.7 tok/s,零 retraction |
+| 166K 冷 prefill | 87.1 s(池 8 时为 87.3 s) |
+| 缓存命中计费(第二枪) | 99.4% 命中,TTFT 0.13 s |
+| 150K × 2 挤兑 | 零 retraction/断言(第二个 150K 排队属设计行为:300K > 262144 池) |
+| T1/T2 调度补丁 | PASS(闩锁交织 + wait-boost 排序) |
+| 9.5 h 生产 soak | 双流 mamba 峰值 8/10,零断言、零重启 |
 
 ### 吞吐 vs 上下文
 
@@ -351,11 +415,12 @@ make check     # compose 一致性 + 机密扫描
 ├── LICENSE                     Apache-2.0
 ├── Makefile  .env.example
 ├── inference/
-│   ├── kv-fp8-text-image.yml       默认:FP8 KV + 视觉(32 GB,mrr 2)
-│   ├── kv-nvfp4-text-image.yml     NVFP4 KV + 视觉(32 GB,mrr 4)
-│   ├── kv-fp8-text-only.yml        FP8 KV,纯文本,4 路(32 GB)
+│   ├── kv-fp8-text-image.yml       主线默认:FP8 KV + 视觉(32 GB,mrr 2,
+│   │                               v0.5.19 树,E10:extra_buffer + 池 10)
+│   ├── kv-nvfp4-text-image.yml     legacy:NVFP4 KV + 视觉(32 GB,mrr 4,旧钉定树)
+│   ├── kv-fp8-text-only.yml        legacy:FP8 KV,纯文本,4 路(旧钉定树)
 │   ├── patches/sched-latch-fix/    调度器补丁(假闩锁 / LPM 超时钉顶)
-│   └── tools/acceptance/           升级后验收套件
+│   └── tools/acceptance/           验收套件(T1/T2 调度、T3 mamba stash)
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md

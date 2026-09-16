@@ -5,8 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-SGLANG_DIGEST="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
-SGLANG_TAG="lmsysorg/sglang:dev-qwen38-27b-dflash2"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9"
+DERIVED_IMAGE="llm-infer:latchfix-d6e72886"
+PATCH_DIR="inference/patches/sched-latch-fix"
+SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
+SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
 NEWAPI_IMAGE="calciumion/new-api:v1.0.0-rc.36"
 MODEL_REPO="nvidia/Qwen3.8-27B-NVFP4"
 MODEL_DIR_NAME="Qwen3.8-27B-NVFP4"
@@ -43,11 +46,26 @@ fi
 set -a; source .env; set +a
 : "${MODELS_DIR:?set MODELS_DIR in .env}"
 
-log "pulling SGLang image (${SGLANG_DIGEST})"
-if ! docker pull "$SGLANG_DIGEST"; then
-  log "digest unavailable, falling back to tag ${SGLANG_TAG}"
-  docker pull "$SGLANG_TAG"
-  sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${SGLANG_TAG}#" .env
+if [[ "$VARIANT" == "fp8v" ]]; then
+  log "pulling SGLang base image (${SGLANG_BASE_DIGEST})"
+  docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
+  log "building patched derived image (${DERIVED_IMAGE})"
+  docker build -f "${PATCH_DIR}/img-d6e72886/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+  SGLANG_IMAGE_FINAL="$DERIVED_IMAGE"
+else
+  log "pulling SGLang image (${SGLANG_DIGEST_LEGACY})"
+  if ! docker pull "$SGLANG_DIGEST_LEGACY"; then
+    log "digest unavailable, falling back to tag ${SGLANG_TAG_LEGACY}"
+    docker pull "$SGLANG_TAG_LEGACY"
+    SGLANG_IMAGE_FINAL="$SGLANG_TAG_LEGACY"
+  else
+    SGLANG_IMAGE_FINAL="$SGLANG_DIGEST_LEGACY"
+  fi
+fi
+if grep -q '^SGLANG_IMAGE=' .env; then
+  sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${SGLANG_IMAGE_FINAL}#" .env
+else
+  echo "SGLANG_IMAGE=${SGLANG_IMAGE_FINAL}" >> .env
 fi
 log "pulling gateway image (${NEWAPI_IMAGE})"
 docker pull "$NEWAPI_IMAGE"

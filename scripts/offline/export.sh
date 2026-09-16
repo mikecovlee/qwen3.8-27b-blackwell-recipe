@@ -8,8 +8,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 BUNDLE="${1:-bundle}"
-SGLANG_DIGEST="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
-SGLANG_TAG="lmsysorg/sglang:dev-qwen38-27b-dflash2"
+VARIANT="${VARIANT:-fp8v}"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9"
+DERIVED_IMAGE="llm-infer:latchfix-d6e72886"
+PATCH_DIR="inference/patches/sched-latch-fix"
+SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
+SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
 NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.36}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
@@ -20,13 +24,22 @@ die() { printf '\033[1;31m[export] error:\033[0m %s\n' "$*" >&2; exit 1; }
 [[ -d "${MODELS_DIR}/${MODEL_DIR_NAME}" ]] || die "model not found: ${MODELS_DIR}/${MODEL_DIR_NAME}"
 mkdir -p "$BUNDLE/images" "$BUNDLE/model"
 
-img="$SGLANG_DIGEST"
-log "pulling SGLang image"
-if ! docker pull "$img"; then
-  img="$SGLANG_TAG"
-  log "digest unavailable, using tag ${SGLANG_TAG}"
-  docker pull "$img"
+if [[ "$VARIANT" == "fp8v" ]]; then
+  img="$DERIVED_IMAGE"
+  log "pulling SGLang base image (v0.5.19 line)"
+  docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
+  log "building patched derived image (${DERIVED_IMAGE})"
+  docker build -f "${PATCH_DIR}/img-d6e72886/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+else
+  img="$SGLANG_DIGEST_LEGACY"
+  log "pulling SGLang image (legacy ${VARIANT})"
+  if ! docker pull "$img"; then
+    img="$SGLANG_TAG_LEGACY"
+    log "digest unavailable, using tag ${SGLANG_TAG_LEGACY}"
+    docker pull "$img"
+  fi
 fi
+echo "$VARIANT" > "$BUNDLE/VARIANT"
 log "pulling gateway image"
 docker pull "$NEWAPI_IMAGE"
 
