@@ -1,0 +1,67 @@
+{
+ "expect": "safe",
+ "verdict": "PASS",
+ "results": [
+  "safe",
+  "safe"
+ ],
+ "trials": [
+  {
+   "trial": 0,
+   "result": "safe",
+   "crash_lines_delta": 0,
+   "restart_delta": 0,
+   "l_sent": 80.6,
+   "l_admitted": null,
+   "min_mamba_avail_after_admit": null,
+   "out": {
+    "L@g": 160.2,
+    "L_bytes": 7758,
+    "L_done": 160.7,
+    "M1@g": 41.7,
+    "M1_bytes": 126050,
+    "M1_done": 83.9,
+    "M2@g": 78.7,
+    "M2_bytes": 18917528,
+    "M2_done": 233.2
+   }
+  },
+  {
+   "trial": 1,
+   "result": "safe",
+   "crash_lines_delta": 0,
+   "restart_delta": 0,
+   "l_sent": 236.7,
+   "l_admitted": null,
+   "min_mamba_avail_after_admit": null,
+   "out": {
+    "L@g": 240.1,
+    "L_bytes": 8194,
+    "L_done": 240.6,
+    "M1@g": 234.6,
+    "M1_bytes": 129790,
+    "M1_done": 239.9,
+    "M2@g": 235.0,
+    "M2_bytes": 18998728,
+    "M2_done": 313.4
+   }
+  }
+ ],
+ "args": {
+  "url": "http://127.0.0.1:8099/generate",
+  "container": "llm-infer-test",
+  "expect": "safe",
+  "trials": 2,
+  "m1_tokens": 98000,
+  "m2_tokens": 98000,
+  "l_tokens": 150000,
+  "m1_out": 160,
+  "m2_out": 2800,
+  "l_out": 16,
+  "tree_pressure": 0,
+  "watchdog": 600,
+  "health_timeout": 300,
+  "outdir": "evidence/mamba-stash-T3-0915/safe-arm"
+ },
+ "started": "2026-09-15 23:30:00"
+}

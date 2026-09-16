@@ -140,3 +140,14 @@ Outcome: slot saturation alone is not sufficient to reproduce; the
 leading explanation is a rare FP4-KV sampling derailment self-amplified by the client
 feeding garbage back into history. The default profile moved to FP8 KV, which removes
 the entire class (and page 64 / trtllm_mha alongside it).
+
+## Mamba stash crash & E10 fix (2026-09-15)
+
+Production crash 13 h after the v0.5.19 cutover: `_alloc_mamba_slot` assert during
+`stash_chunked_request` (pool 8; `extra_buffer_lazy` admission coefficient 2 < peak 3
+slots/req — upstream FIXME plus a unit test pin this as fail-loud by design). Fix = E10:
+`--mamba-radix-cache-strategy extra_buffer` + `--max-mamba-cache-size 10` (upstream
+auto-sizing ratio 5 × mrr 2). KV pool unchanged at 262144 tokens (flag-bound; the
++0.16 GB is absorbed by static-budget headroom). Twin verification, regression numbers
+and the new `verify-mamba-stash.py` (T3) upgrade gate:
+[`mamba-stash-T3-0915/`](mamba-stash-T3-0915/).

@@ -135,3 +135,12 @@ prefill 图 关 vs 开:0 ~ +1%(1K/14K/70K;TTFT 完全一致)。
 
 结论:仅靠槽饱和不足以复现;当前主解释是 FP4-KV 的稀有采样脱轨,被客户端把乱码写回
 历史后自喂放大。默认档已切换为 FP8 KV,整类问题(连同 page 64 / trtllm_mha)一并移除。
+
+## mamba stash 崩溃与 E10 修复(2026-09-15)
+
+v0.5.19 切换后 13h 的生产崩溃:`stash_chunked_request` 期间 `_alloc_mamba_slot` 断言
+(池 8;`extra_buffer_lazy` 准入系数 2 < 每请求峰值 3 槽——上游 FIXME 与单测把此钉为
+fail-loud 设计)。修复 = E10:`--mamba-radix-cache-strategy extra_buffer` +
+`--max-mamba-cache-size 10`(上游自动定容 ratio 5 × mrr 2)。KV 池维持 262144 token 不变
+(受 flag 卡而非内存卡;+0.16GB 被静态预算余量吸收)。孪生验证、回归数据与新验收件
+`verify-mamba-stash.py`(T3,镜像升级门禁):[`mamba-stash-T3-0915/`](mamba-stash-T3-0915/)。

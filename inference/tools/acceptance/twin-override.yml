@@ -1,0 +1,20 @@
+# Isolated acceptance twin — SAME GPU as production, NEVER run both at once.
+# Bring up (from the oss/ directory; compose auto-loads oss/.env via
+# --project-directory, project pinned to `inference` so the twin shares the
+# inference_sglang-cache JIT volume with the production bring-up that follows):
+#   docker compose -p inference --project-directory . \
+#     -f inference/kv-fp8-text-image.yml \
+#     -f inference/tools/acceptance/twin-override.yml up -d
+# A/B the 09-15 mamba fix via envs (defaults = production values):
+#   crash-reproduction arm (pre-fix config):
+#     MAMBA_STRATEGY=extra_buffer_lazy MAMBA_POOL=8 docker compose ... up -d
+#   fixed arm: bring up again without the two envs (extra_buffer / pool 10).
+# Tear down after the run, then bring production up from the same project:
+#   docker compose -p inference --project-directory . \
+#     -f inference/kv-fp8-text-image.yml \
+#     -f inference/tools/acceptance/twin-override.yml down
+services:
+  sglang:
+    container_name: llm-infer-test
+    ports: !override
+      - "8099:8080"
