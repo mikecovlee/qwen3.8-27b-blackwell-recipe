@@ -8,6 +8,11 @@
 # Serves Qwen3.8-27B with a 262144-token context.  Default / lower-risk profile is
 # kv-fp8-text-image.yml; high-concurrency text-only is kv-fp8-text-only.yml.  Full
 # parameter rationale: see the "Tuning" section of the README.
+#
+# [2026-09-17] Not yet migrated to the all-in-one v0.5.19 image + HiCache
+# host-tier fix (patches/hicache-mamba-fix/): this profile still runs the
+# legacy b91d664a mount build.  Revalidate the new image against this profile
+# (acceptance suites on a twin instance) before switching it.
 services:
   sglang:
     image: ${SGLANG_IMAGE:-lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376}

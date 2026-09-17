@@ -44,7 +44,7 @@ def command(path):
 DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-attention-backend",
         "--attention-backend", "--mm-process-config",
         "--image-processor-backend", "--limit-mm-data-per-request",
-        "--schedule-policy"}
+        "--schedule-policy", "--chunked-prefill-size"}
 # Boolean flags that exist in only one variant (no value to consume).
 DROP_BOOL = {"--disable-prefill-cuda-graph"}
 # Flags shared but intentionally different between variants (normalize the value).

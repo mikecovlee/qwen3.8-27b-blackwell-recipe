@@ -39,8 +39,9 @@
 #   the unallocated static budget — KV still allocates the full 262144 tokens,
 #   context is NOT reduced.  Cost of dropping _lazy: slightly more conservative
 #   admission (3 free slots required instead of 2).  The assert-on-exhaustion
-#   class remains upstream design; other extreme exhaustion paths are still
-#   theoretically fatal (a graceful-degradation patch was evaluated, not shipped).
+#   class was upstream design; the all-in-one image now ships the
+#   graceful-degradation backport (hicache-mamba-fix P3: skip radix caching and
+#   count sglang:radix_cache_aux_alloc_failed_total instead of asserting).
 #   MAMBA_STRATEGY / MAMBA_POOL envs exist for A/B testing — the crash
 #   reproduction arm uses MAMBA_STRATEGY=extra_buffer_lazy MAMBA_POOL=8 with
 #   tools/acceptance/verify-mamba-stash.py; defaults = production values.
@@ -55,11 +56,20 @@
 #   sched_lpm_waitfix — LPM starvation guard (T=20s N=1; queue reordering only,
 #                       adds no capacity; SGLANG_LPM_WAIT_BOOST_SECONDS=0
 #                       disables it and leaves pure LPM ordering).
-# Rebuild: cd patches/sched-latch-fix && \
-#   docker build -f img-d6e72886/Dockerfile -t llm-infer:latchfix-d6e72886 .
+# Rebuild (context = patches/): \
+#   docker build -f hicache-mamba-fix/img-d6e72886/Dockerfile \
+#     -t llm-infer:hicache-d6e72886 .
+#
+# [2026-09-17] HiCache hybrid-Mamba fix added (patches/hicache-mamba-fix/):
+# chunked-prefill write-through backup + honest host-hit metric + mamba
+# alloc-failure degrade + explicit host mamba pool.  Measured: a fully evicted
+# 36.6K session reloads from host in 0.26 s instead of 8.76 s full re-prefill
+# (first real load_back_tokens{pool="kv"} +36,608); branch continuation
+# 25.1 s -> 3.09 s.  --chunked-prefill-size 6144 + host mamba 7.0 GB = 88
+# slots satisfy the branch-reuse criterion 262144/6144 ~ 43 <= 10 + 88.
 services:
   sglang:
-    image: ${SGLANG_IMAGE:-llm-infer:latchfix-d6e72886}
+    image: ${SGLANG_IMAGE:-llm-infer:hicache-d6e72886}
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -75,6 +85,11 @@ services:
       # LPM wait-boost (baked sched_lpm_waitfix): pin the longest waiter.
       - SGLANG_LPM_WAIT_BOOST_SECONDS=20
       - SGLANG_LPM_WAIT_BOOST_MAX=1
+      # Host mamba pool for HiCache load-back anchors: 7.0 GB = 88 slots.
+      # Criterion (upstream #36935): kv_pool_tokens/cps <= device + host slots
+      # => 262144/6144 ~ 43 <= 10 + 88.  Costs +3.7 GB host RAM vs the
+      # ratio-derived pool; without it branch reuse never re-admits.
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=7.0
     shm_size: 8g
     restart: unless-stopped
     deploy:
@@ -98,6 +113,11 @@ services:
       - "0.94"
       - --max-total-tokens
       - "262144"
+      # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
+      # count (kv_pool/cps) checked against the mamba slot budget.  6144 keeps
+      # 43 anchors <= 10 device + 88 host slots; 8192 OOMs this profile (32 GB).
+      - --chunked-prefill-size
+      - "6144"
       - --max-mamba-cache-size
       - "${MAMBA_POOL:-10}"
       - --mamba-radix-cache-strategy
@@ -112,7 +132,7 @@ services:
       - --cuda-graph-max-bs-decode
       - "2"
       # Prefill CUDA graph costs ~1.2 GB and measured 0-1% prefill impact on this
-      # stack (chunked prefill of 2048 tokens is compute-bound, not launch-bound).
+      # stack (chunked prefill of 6144 tokens is compute-bound, not launch-bound).
       # Disabling it is what makes FP8 KV + vision + full 262144 fit on 32 GB.
       - --disable-prefill-cuda-graph
       # LPM admission ordering (input-side SJF proxy: longer prefix hit first;
