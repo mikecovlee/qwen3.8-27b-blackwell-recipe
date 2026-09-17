@@ -144,3 +144,15 @@ fail-loud 设计)。修复 = E10:`--mamba-radix-cache-strategy extra_buffer` +
 `--max-mamba-cache-size 10`(上游自动定容 ratio 5 × mrr 2)。KV 池维持 262144 token 不变
 (受 flag 卡而非内存卡;+0.16GB 被静态预算余量吸收)。孪生验证、回归数据与新验收件
 `verify-mamba-stash.py`(T3,镜像升级门禁):[`mamba-stash-T3-0915/`](mamba-stash-T3-0915/)。
+
+## HiCache 混合 Mamba 修复与 host 池定容(2026-09-17)
+
+v0.5.19 的 HiCache 对混合 GDN(Mamba)模型基本没有真正复用 host 层:190K 续传仍要
+~109 s,且 host-hit 指标虚高(设备常驻 token 被记到了 host 层)。根因是三个上游缺口:
+chunked prefill 不入写通备份、mamba 锚点池按上游判据 `262144/cps` 定容不足、分配饥饿
+可断言打崩调度器。打上 `hicache-mamba-fix` 补丁集 + `cps 6144` +
+`SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` 后:被逐出的 36.6K 会话以 **0.26 s** 从 host RAM
+回来(全量重算 8.76 s,34×),分支场景 25.1 s → 3.09 s,2×68.5K 并发 prefill 无异常。
+回归门禁(`verify-hicache-thrash.py`)现在要求真实的 host 装载
+(`sglang:load_back_tokens_total{pool="kv"}` 增量),而非只是响应快。
+证据:[`hicache-mamba-fix-0917/`](hicache-mamba-fix-0917/)。

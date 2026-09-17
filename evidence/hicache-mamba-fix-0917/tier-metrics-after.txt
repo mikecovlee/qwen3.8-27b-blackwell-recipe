@@ -1,0 +1,17 @@
+sglang:load_back_duration_seconds_count{cache_type="UnifiedRadixCache"} 3.0
+# HELP sglang:hicache_dropped_tokens_total The number of device KV tokens destroyed without a host backup, by pool (kv, swa, ...) and reason (e.g. write-back backup failure under host memory pressure).
+# TYPE sglang:hicache_dropped_tokens_total counter
+sglang:hicache_dropped_tokens_total{cache_type="UnifiedRadixCache",pool="kv",reason="host_pressure"} 0.0
+sglang:hicache_dropped_tokens_total{cache_type="UnifiedRadixCache",pool="mamba",reason="host_pressure"} 0.0
+# HELP sglang:hicache_backup_tokens_total The number of tokens backed up from GPU to local host DRAM (L2), by host pool (kv, swa, mamba, ...). Covers all D->H backups regardless of --hicache-write-policy. Distinct from the host-to-storage (L3) sglang:backuped_tokens_total.
+# TYPE sglang:hicache_backup_tokens_total counter
+sglang:hicache_backup_tokens_total{cache_type="UnifiedRadixCache",pool="kv"} 787573.0
+sglang:hicache_backup_tokens_total{cache_type="UnifiedRadixCache",pool="mamba"} 156.0
+# HELP sglang:evicted_tokens_total The number of device KV token slots freed by eviction, regardless of whether the data was backed up to host (see sglang:hicache_backup_tokens_total) or destroyed (see sglang:hicache_dropped_tokens_total).
+# HELP sglang:load_back_tokens_total The number of tokens loaded back from local host DRAM (L2) to GPU, by host pool (kv, swa, mamba, ...).
+# TYPE sglang:load_back_tokens_total counter
+sglang:load_back_tokens_total{cache_type="UnifiedRadixCache",pool="kv"} 36608.0
+sglang:load_back_tokens_total{cache_type="UnifiedRadixCache",pool="mamba"} 6.0
+# HELP sglang:hicache_host_used_tokens Number of tokens currently used in the host KV cache.
+# TYPE sglang:hicache_host_used_tokens gauge
+sglang:hicache_host_used_tokens{engine_type="unified",model_name="qwen3.8-27b",moe_ep_rank="0",pp_rank="0",tp_rank="0"} 520373.0

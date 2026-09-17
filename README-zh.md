@@ -88,7 +88,8 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 
 `make online` 调用 `scripts/online/setup.sh`,依次:检查 docker / GPU / compose →
 按变体准备 SGLang 镜像——`fp8v`(默认):按 digest 拉取钉定的 v0.5.19 基座并**构建烘焙补丁的
-派生镜像** `llm-infer:latchfix-d6e72886`(来自 `inference/patches/sched-latch-fix/`);
+派生镜像** `llm-infer:hicache-d6e72886`(来自 `inference/patches/`:调度器假闩锁 + LPM +
+HiCache 混合 Mamba 补丁);
 legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网关镜像 → 下载模型到
 `$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,`SGLANG_IMAGE` 与变体匹配)→
 启动服务并等待 `/health`。
@@ -103,10 +104,10 @@ legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网�
 cp .env.example .env          # 修改 MODELS_DIR 与 SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# 主线(fp8v):钉定 v0.5.19 基座 + 烘焙调度补丁
+# 主线(fp8v):钉定 v0.5.19 基座 + 烘焙调度器 + HiCache 补丁
 docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
-docker build -f inference/patches/sched-latch-fix/img-d6e72886/Dockerfile \
-  -t llm-infer:latchfix-d6e72886 inference/patches/sched-latch-fix
+docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
+  -t llm-infer:hicache-d6e72886 inference/patches
 # legacy 变体(nvfp4 / fp8 纯文本)改为拉取旧钉定树:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
@@ -140,12 +141,14 @@ make offline BUNDLE=/path/to/bundle
 
 | 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.19 树) | `kv-nvfp4-text-image.yml`(legacy,32 GB,4 路) | `kv-fp8-text-only.yml`(legacy,32 GB,4 路) |
 | --- | --- | --- | --- |
-| 镜像(默认) | `llm-infer:latchfix-d6e72886`(派生,补丁经 `.pth` 烘焙) | `lmsysorg/sglang@sha256:b91d664a…`(旧钉定树,`/patches` 挂载) | 同 NVFP4 |
+| 镜像(默认) | `llm-infer:hicache-d6e72886`(派生;调度器 + HiCache 补丁均已烘焙) | `lmsysorg/sglang@sha256:b91d664a…`(旧钉定树,`/patches` 挂载) | 同 NVFP4 |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention 后端 | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
 | 视觉 | 开 | 开 | 关(`language_model_only`) |
 | 图像参数 | `--mm-process-config`、`--image-processor-backend pil`、护栏 `image:128` | 同左 | 无 |
 | mrr / mamba 池 / graph bs | **2 / 10 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
+| `--chunked-prefill-size` | `6144`(HiCache 锚点判据,见[调优要点](#调优要点)) | 2048(默认) | 2048(默认) |
+| `SGLANG_HICACHE_MAMBA_SIZE_GB` | `7.0`(88 个 host mamba 锚点) | 未设 | 未设 |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
 | `--schedule-policy` | `lpm` + LPM 超时钉顶 env(20 s / 1) | 默认(`fcfs`) | 默认(`fcfs`) |
 | `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
@@ -153,7 +156,7 @@ make offline BUNDLE=/path/to/bundle
 | 启动后显存余量(32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
 
 **怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
-代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.19 树 + 烘焙调度补丁上。同一张卡需要
+代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.19 树 + 烘焙调度器/HiCache 补丁上。同一张卡需要
 4 路并发、且接受其**偶发 reasoning 乱码不稳定**([NVFP4 注意事项](#nvfp4-注意事项))时才选
 **NVFP4 KV + 视觉**(legacy);24 GB 卡上它是唯一有意义的选择;从不发图片且要高并发选
 **FP8 纯文本**(legacy)。48 GB+ 可把主线档上调为 mrr 4 / 池 20 / graph 4(池 = 5 × mrr,
@@ -219,7 +222,8 @@ v0.5.19 `d6e72886` 在 `scheduler.py:3661`):chunked prefill 的续传(已持有�
 
 补丁位于 `inference/patches/sched-latch-fix/`,按钉定镜像一构建一目录(`img-<digest>/`,
 升级流程见其 README)。主线 `kv-fp8-text-image` 档钉定**派生镜像
-`llm-infer:latchfix-d6e72886`**(由 `img-d6e72886/` 构建):补丁经 `.pth` import 烘焙——
+`llm-infer:hicache-d6e72886`**(一体构建自 `inference/patches/`:本补丁族 + 下节的
+HiCache 混合 Mamba 补丁):调度器补丁经 `.pth` import 烘焙——
 v0.5.19 基座自带的系统 `sitecustomize.py` 会静默遮蔽旧的 `PYTHONPATH=/patches` 挂载法——
 启动时**自检锚点、漂移即响亮报错**,并含 LPM 超时钉顶伴生模块,主线档默认启用
 (`--schedule-policy lpm` + `SGLANG_LPM_WAIT_BOOST_SECONDS=20` / `SGLANG_LPM_WAIT_BOOST_MAX=1`:
@@ -231,10 +235,10 @@ legacy 档仍钉定 `b91d664a`,经 `/patches` 挂载加载 `img-b91d664a/sitecus
 两个构建共享同一条抑制规则:只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制
 假闩锁——因此绝不会过度准入,任何 `mrr` 下都安全。
 
-假闩锁需要存在"正在进行的分块 prefill"——即 prompt 超过 `chunked_prefill_size`(2048)
-被切成多 pass 续传。只有此时,第二路请求**在该 prefill 尚未结束时到达**,才会被压到第一路
-prefill 结束(瞬时 `mrr - 1`),停滞时长等于该 prefill 的时长。同一 pass 内同时到达的两路都
-会进;≤2048 token 的 prompt 根本不会分块,均不受影响。
+假闩锁需要存在"正在进行的分块 prefill"——即 prompt 超过 `chunked_prefill_size`
+(2048 legacy / 6144 主线)被切成多 pass 续传。只有此时,第二路请求**在该 prefill 尚未结束
+时到达**,才会被压到第一路 prefill 结束(瞬时 `mrr - 1`),停滞时长等于该 prefill 的时长。
+同一 pass 内同时到达的两路都会进;≤`chunked_prefill_size` 的 prompt 根本不会分块,均不受影响。
 
 ### 上下文池预算与 prefill CUDA graph
 
@@ -243,8 +247,8 @@ prefill 结束(瞬时 `mrr - 1`),停滞时长等于该 prefill 的时长。同�
 `--max-total-tokens` 钉住时,改 `--mem-fraction-static` 只是重新划分 slack,池不变
 (0.90 与 0.92 实测完全相同);但当**测得值(profiled)低于用户上限**时,fraction 与
 图开销就直接决定池大小。2026-09-11 实测:FP8 KV + 视觉 + mrr 2 在 0.90 + prefill 图开启
-时 profiled 只有 242337;关掉该图(1.19 GB,实测 prefill 影响 0~1%——2048 token 的
-chunked prefill 是计算受限而非启动受限)并把 fraction 提到 0.94,池恢复满额 262144,
+时 profiled 只有 242337;关掉该图(1.19 GB,实测 prefill 影响 0~1%——chunked prefill
+是计算受限而非启动受限)并把 fraction 提到 0.94,池恢复满额 262144,
 还剩 ~1.9 GB 余量(166K 冷 prefill 87s、零 retraction)。E10 复验(2026-09-15,mamba
 池 8→10 = +0.16 GB):KV 池被 **flag 钉住而非内存钉住**——约 0.7 GB 静态 slack 吸收了
 新增槽位,KV 仍分配满额 262144,图捕获后余量 ~1.78 GB,166K 冷 prefill 复测 87.1 s。
@@ -261,6 +265,26 @@ chunked prefill 是计算受限而非启动受限)并把 fraction 提到 0.94,�
 `--enable-hierarchical-cache --hicache-ratio 2` 在主机内存保留 L2 KV 缓存,把 190K
 token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占 17 GB 主机内存;
 想要更大 L2 就调高(代价是内存)。
+
+[2026-09-17] 在这款混合 GDN(Mamba)模型上,host 层真正可用是打了 `hicache-mamba-fix`
+补丁 + `--chunked-prefill-size 6144` + `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` 之后:被逐出
+的 36.6K 会话现在 **0.26 s** 从 host 内存回来(此前全量重算 8.76 s——约 34 倍),分支
+重入 25.1 s → 3.09 s,2×68.5K 并发 prefill 全程干净。细节见下一节。
+
+### HiCache 混合 Mamba 修复
+
+原版 v0.5.19 的 HiCache 在这类混合 GDN(Mamba)模型上并没有真正复用 host 层:chunked
+prefill 从不写通备份(chunked 节点被按操作计的命中计数跳过)、mamba 锚点池远低于上游
+判据 `kv_pool_tokens × hicache_ratio / chunked_prefill_size`(旧 cps 2048 时需要约 128
+个,实际只有 10 设备 + 20 host)、host-hit 计数是幻影(device 常驻 token 记到了 host
+层),且 mamba 分配饥饿会把调度器断言打崩。`inference/patches/hicache-mamba-fix/` 一体
+解决这四点(chunked 写通回移 #36647;诚实的 `loaded_host_hit_length` 分层 #26976;mamba
+耗尽时跳过而非断言 #36770;`SGLANG_HICACHE_MAMBA_SIZE_GB` host 池旋钮)——锚点、上游
+状态与退役表见该目录 README。主线跑 `--chunked-prefill-size 6144`(8192 会把池打
+OOM)+ `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` = 约 88 个 host 锚点,满足判据 262144/6144
+≈ 43 ≤ 10 + 88。回归门禁 `verify-hicache-thrash.py` 现在要求出现真实 host 装载
+(`sglang:load_back_tokens_total{pool="kv"}`),而不只是"答得快";测量见
+`evidence/hicache-mamba-fix-0917/`。
 
 ### NVFP4 注意事项
 
@@ -291,8 +315,10 @@ token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占
   cache"):chunked prefill 的 stash 在池吃紧且无可驱逐牺牲者时需要一个捐赠槽(生产实际
   发生一次,2026-09-15)。已由 E10 修复:主线跑 `extra_buffer`(分配器按每请求 3 槽预算,
   准入拒绝排队而非超额承诺)+ 池 10(上游 ratio 5 × mrr 2)。断言本身是上游 fail-loud 设计
-  (main 分支今天仍在)。回归门禁:`inference/tools/acceptance/verify-mamba-stash.py`,
-  证据见 `evidence/mamba-stash-T3-0915/`。
+  (main 分支今天仍在);主线补丁构建另含上游「跳过而非断言」回移(#36770,经
+  `radix_cache_aux_alloc_failed_total` 计数)。回归门禁:
+  `inference/tools/acceptance/verify-mamba-stash.py`,证据见 `evidence/mamba-stash-T3-0915/`
+  与 `evidence/hicache-mamba-fix-0917/`。
 - **`--mm-process-config` 用的是像素「面积」而非边长**。本版处理器忽略 `image.max_pixels`,
   必须用 `image.size.longest_edge`(2097152 = 2 Mpx 面积)。
 - **图片需要 `--image-processor-backend pil`**。GPU 处理器会一次性把所有图 resize 成 fp32
@@ -416,11 +442,12 @@ make check     # compose 一致性 + 机密扫描
 ├── Makefile  .env.example
 ├── inference/
 │   ├── kv-fp8-text-image.yml       主线默认:FP8 KV + 视觉(32 GB,mrr 2,
-│   │                               v0.5.19 树,E10:extra_buffer + 池 10)
+│   │                               v0.5.19 树,E10 + hicache 修复:cps 6144、host mamba 7 GB)
 │   ├── kv-nvfp4-text-image.yml     legacy:NVFP4 KV + 视觉(32 GB,mrr 4,旧钉定树)
 │   ├── kv-fp8-text-only.yml        legacy:FP8 KV,纯文本,4 路(旧钉定树)
 │   ├── patches/sched-latch-fix/    调度器补丁(假闩锁 / LPM 超时钉顶)
-│   └── tools/acceptance/           验收套件(T1/T2 调度、T3 mamba stash)
+│   ├── patches/hicache-mamba-fix/  HiCache 补丁(写通、诚实指标、host 池定容)
+│   └── tools/acceptance/           验收套件(T1/T2 调度、T3 mamba stash、T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md

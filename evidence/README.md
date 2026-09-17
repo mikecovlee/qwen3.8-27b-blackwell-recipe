@@ -151,3 +151,18 @@ auto-sizing ratio 5 × mrr 2). KV pool unchanged at 262144 tokens (flag-bound; t
 +0.16 GB is absorbed by static-budget headroom). Twin verification, regression numbers
 and the new `verify-mamba-stash.py` (T3) upgrade gate:
 [`mamba-stash-T3-0915/`](mamba-stash-T3-0915/).
+
+## HiCache hybrid-Mamba fix & host-pool sizing (2026-09-17)
+
+v0.5.19's HiCache did not actually reuse the host tier for this hybrid GDN (Mamba)
+model: a 190K continuation still measured ~109 s, and the host-hit counters were
+phantom (device-resident tokens were credited to the host tier). Chunked prefills were
+ineligible for write-through backup, the mamba anchor pool was undersized by the
+upstream criterion (`262144/cps` anchors needed), and a starved allocation could
+assert-crash the scheduler. After the `hicache-mamba-fix` patch build + `cps 6144` +
+`SGLANG_HICACHE_MAMBA_SIZE_GB=7.0`: an evicted 36.6K session returns from host RAM in
+**0.26 s** (vs 8.76 s recompute — 34×), the branch case drops 25.1 s → 3.09 s, and
+2×68.5K concurrent prefills run clean. The regression gate
+(`verify-hicache-thrash.py`) now demands a real host load-back
+(`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer. Evidence:
+[`hicache-mamba-fix-0917/`](hicache-mamba-fix-0917/).
