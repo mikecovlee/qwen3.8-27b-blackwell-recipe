@@ -1,0 +1,110 @@
+diff --git a/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py b/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py
+index 0e6042a..6fa8250 100644
+--- a/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py
++++ b/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py
+@@ -1,5 +1,7 @@
+ from __future__ import annotations
+ 
++import logging
++import time
+ from collections import defaultdict
+ from typing import TYPE_CHECKING, Callable, Optional, Sequence
+ 
+@@ -36,6 +38,8 @@ from sglang.srt.mem_cache.unified_cache.components.tree_component import (
+     TreeComponent,
+     get_and_increase_time_counter,
+ )
++
++logger = logging.getLogger(__name__)
+ from sglang.srt.runtime_context import (
+     get_exec,
+     mamba_cache_chunk_size,
+@@ -490,15 +494,54 @@ class MambaComponent(TreeComponent):
+                 self.tree_core.component_protected_size_[ct] -= vlen
+             cd.lock_ref -= 1
+ 
++    _AUX_ALLOC_FAILED_WARN_INTERVAL_S = 60.0
++
+     def _alloc_mamba_slot(self) -> torch.Tensor:
+-        """Allocate one mamba pool slot, evicting if necessary."""
++        """Allocate one mamba pool slot, evicting if necessary (fatal on failure)."""
++        slot = self._try_alloc_mamba_slot()
++        assert slot is not None, "Can not alloc mamba cache"
++        return slot
++
++    def _try_alloc_mamba_slot(self) -> Optional[torch.Tensor]:
++        """Allocate one mamba pool slot, evicting if necessary.
++
++        Returns None when no slot can be allocated even after one eviction
++        attempt; callers should skip radix caching for the request instead of
++        crashing the scheduler (backport of upstream PR #36770).
++        """
+         slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+         if slot is None:
+             self.cache.evict_for_alloc(EvictParams(num_tokens=0, mamba_num=1))
+             slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-            assert slot is not None, "Can not alloc mamba cache"
++            if slot is None:
++                self._on_mamba_alloc_failed()
+         return slot
+ 
++    def _on_mamba_alloc_failed(self) -> None:
++        collector = getattr(self.cache, "metrics_collector", None)
++        if collector is not None:
++            try:
++                collector.increment_aux_alloc_failed()
++            except Exception:
++                pass
++        now = time.monotonic()
++        last = getattr(self, "_mamba_alloc_failed_last_warn_t", 0.0)
++        if now - last < self._AUX_ALLOC_FAILED_WARN_INTERVAL_S:
++            return
++        self._mamba_alloc_failed_last_warn_t = now
++        evictable, protected = 0, 0
++        try:
++            evictable = self.tree_core.component_evictable_size_[ComponentType.MAMBA]
++            protected = self.tree_core.component_protected_size_[ComponentType.MAMBA]
++        except Exception:
++            pass
++        logger.warning(
++            "Can not alloc mamba cache slot after eviction; skipping radix "
++            "caching for this request (mamba evictable=%d protected=%d).",
++            evictable,
++            protected,
++        )
++
+     @property
+     def int8_ckpt_pool(self):
+         return getattr(self.cache.req_to_token_pool, "mamba_ckpt_pool", None)
+@@ -574,7 +617,9 @@ class MambaComponent(TreeComponent):
+             # Donate the mamba index to the radix cache instead of copying.
+             if self.int8_ckpt_pool is not None:
+                 if self.cache.enable_mamba_extra_buffer:
+-                    new_slot = self._alloc_mamba_slot()
++                    new_slot = self._try_alloc_mamba_slot()
++                    if new_slot is None:
++                        return 0
+                     src_active = (
+                         self.cache.req_to_token_pool.donate_mamba_ping_pong_slot(
+                             req, new_slot
+@@ -587,14 +632,18 @@ class MambaComponent(TreeComponent):
+                         req.kv.mamba_pool_idx.view(-1)
+                     )
+             elif self.cache.enable_mamba_extra_buffer:
+-                new_slot = self._alloc_mamba_slot()
++                new_slot = self._try_alloc_mamba_slot()
++                if new_slot is None:
++                    return 0
+                 mamba_value_donated = (
+                     self.cache.req_to_token_pool.donate_mamba_ping_pong_slot(
+                         req, new_slot
+                     )
+                 )
+             else:
+-                mamba_value_donated = self._alloc_mamba_slot()
++                mamba_value_donated = self._try_alloc_mamba_slot()
++                if mamba_value_donated is None:
++                    return 0
+                 # mamba_pool is a pure PHYSICAL store; translate both slot ids
+                 # virtual->physical (identity for the non-unified memory pool) first.
+                 translate = self.cache.req_to_token_pool.translate_mamba_indices

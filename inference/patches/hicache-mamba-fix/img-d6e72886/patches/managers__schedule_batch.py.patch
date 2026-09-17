@@ -1,0 +1,37 @@
+diff --git a/python/sglang/srt/managers/schedule_batch.py b/python/sglang/srt/managers/schedule_batch.py
+index 37e482b..039b6cc 100755
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -1077,6 +1077,7 @@ class Req(ReqDllmMixin):
+         self.host_hit_length = 0
+         self.swa_host_hit_length = 0
+         self.mamba_host_hit_length = 0
++        self.loaded_host_hit_length = 0
+         # The branching point seqlen to track mamba state. If set, given by prefix
+         # match, it will be the tracked seqlen in the ping pong buffer for the
+         # right prefill pass.
+@@ -1483,6 +1484,7 @@ class Req(ReqDllmMixin):
+                 match_result.mamba_host_hit_length,
+                 match_result.mamba_branching_seqlen,
+             )
++            self.loaded_host_hit_length = 0
+             if match_result.cache_protected_len is not None:
+                 self.kv.cache_protected_len = match_result.cache_protected_len
+             else:
+@@ -1761,6 +1763,7 @@ class Req(ReqDllmMixin):
+             return
+ 
+     def reset_for_retract(self):
++        self.loaded_host_hit_length = 0
+         # Increment retraction count before resetting other state. We should not reset this
+         # since we are tracking the total number of retractions for each request.
+         self.retraction_count += 1
+@@ -2617,7 +2620,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
+                         req.cached_tokens_storage,
+                     ) = split_cached_prefix_by_tier(
+                         prefix_len=len(req.prefix_indices),
+-                        host_hit_len=req.host_hit_length,
++                        host_hit_len=req.loaded_host_hit_length,
+                         storage_hit_len=req.storage_hit_length,
+                     )
+                     req._cache_breakdown_computed = True

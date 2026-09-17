@@ -1,0 +1,30 @@
+diff --git a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
+index cef0ef9..d283d76 100644
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
+@@ -20,6 +20,7 @@ from sglang.srt.mem_cache.memory_pool_host import (
+ from sglang.srt.mem_cache.pool_host import HostPoolGroup, PoolEntry
+ from sglang.srt.mem_cache.pool_host.common import get_allocator_type
+ from sglang.srt.mem_cache.pool_host.dsa import DSAIndexerPoolHost
++from sglang.srt.environ import envs
+ from sglang.srt.mem_cache.pool_host.mamba import MambaPoolHost
+ from sglang.srt.mem_cache.pool_host.mha import (
+     MHATokenToKOnlyPoolHost,
+@@ -732,6 +733,8 @@ def build_hybrid_mamba_stack(
+         kv_host_size, mamba_host_size = _split_hicache_size(
+             get_memory().hicache_size, (kv_pool, mamba_pool)
+         )
++    if envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get() > 0:
++        mamba_host_size = envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get()
+     kv_host_pool = build_kv_host_pool(
+         kv_pool=kv_pool,
+         page_size=params.page_size,
+@@ -833,6 +836,8 @@ def build_hybrid_mamba_swa_stack(
+         kv_host_size, swa_host_size, mamba_host_size = _split_hicache_size(
+             get_memory().hicache_size, (full_kv_pool, swa_kv_pool, mamba_pool)
+         )
++    if envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get() > 0:
++        mamba_host_size = envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get()
+     kv_host_pool = build_kv_host_pool(
+         kv_pool=full_kv_pool,
+         page_size=page_size,

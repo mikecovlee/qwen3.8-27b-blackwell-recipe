@@ -1,0 +1,21 @@
+diff --git a/python/sglang/srt/mem_cache/unified_radix_cache.py b/python/sglang/srt/mem_cache/unified_radix_cache.py
+index 5cb53fa..7b11aa9 100644
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -990,6 +990,16 @@ class UnifiedRadixCache(BasePrefixCache):
+         insert_params.value = values
+         result = self.insert(insert_params)
+ 
++        # Write-through backup for chunked prefills (backport of upstream
++        # PR #36647): chunked inserts bypass the hit-count backup path, so
++        # explicitly back up the newly inserted chain here.
++        if chunked and result is not None and result.last_device_node is not None:
++            tree = self.tree_core
++            if tree.enable_hicache and not tree.is_write_back:
++                node = tree.node_by_id(result.last_device_node)
++                if not node.backuped:
++                    self._apply_cache_actions([tree._build_backup_kv_action(node)])
++
+         # Match prefix. SWA insertion retains one extra window before the
+         # page-aligned boundary, so the normal match remains safe to repoint.
+         match_result = self.match_prefix(MatchPrefixParams(key=radix_key, req=req))

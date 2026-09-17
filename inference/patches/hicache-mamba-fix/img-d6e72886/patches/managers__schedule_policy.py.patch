@@ -1,0 +1,39 @@
+diff --git a/python/sglang/srt/managers/schedule_policy.py b/python/sglang/srt/managers/schedule_policy.py
+index ae9fa0d..72d2648 100644
+--- a/python/sglang/srt/managers/schedule_policy.py
++++ b/python/sglang/srt/managers/schedule_policy.py
+@@ -919,7 +919,7 @@ class PrefillAdder:
+             0,
+             req.retracted_stain,
+             mamba_gap_reserve=self._mamba_gap_budget_for_req(req),
+-            host_hit_len=req.host_hit_length,
++            host_hit_len=req.loaded_host_hit_length,
+             storage_hit_len=req.storage_hit_length,
+         )
+ 
+@@ -1294,6 +1294,7 @@ class PrefillAdder:
+                         req=req,
+                     )
+                 )
++                req.loaded_host_hit_length = len(new_indices)
+                 req.prefix_indices = torch.cat([req.prefix_indices, new_indices])
+                 prefix_len = len(req.prefix_indices)
+                 req.kv.cache_protected_len = prefix_len
+@@ -1349,7 +1350,7 @@ class PrefillAdder:
+                     ),
+                     req.retracted_stain,
+                     mamba_gap_reserve=self._mamba_gap_budget_for_req(req),
+-                    host_hit_len=req.host_hit_length,
++                    host_hit_len=req.loaded_host_hit_length,
+                     storage_hit_len=req.storage_hit_length,
+                 )
+             else:
+@@ -1397,7 +1398,7 @@ class PrefillAdder:
+                     0,
+                     req.retracted_stain,
+                     mamba_gap_reserve=self._mamba_gap_budget_for_req(req),
+-                    host_hit_len=req.host_hit_length,
++                    host_hit_len=req.loaded_host_hit_length,
+                     storage_hit_len=req.storage_hit_length,
+                 )
+ 
