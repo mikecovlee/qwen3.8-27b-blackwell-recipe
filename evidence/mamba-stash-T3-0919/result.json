@@ -1,0 +1,67 @@
+{
+ "expect": "safe",
+ "verdict": "PASS",
+ "results": [
+  "safe",
+  "safe"
+ ],
+ "trials": [
+  {
+   "trial": 0,
+   "result": "safe",
+   "crash_lines_delta": 0,
+   "restart_delta": 0,
+   "l_sent": 80.6,
+   "l_admitted": null,
+   "min_mamba_avail_after_admit": null,
+   "out": {
+    "L@g": 159.3,
+    "L_bytes": 7726,
+    "L_done": 159.8,
+    "M1@g": 43.5,
+    "M1_bytes": 125923,
+    "M1_done": 83.9,
+    "M2@g": 78.8,
+    "M2_bytes": 18906523,
+    "M2_done": 232.3
+   }
+  },
+  {
+   "trial": 1,
+   "result": "safe",
+   "crash_lines_delta": 0,
+   "restart_delta": 0,
+   "l_sent": 235.9,
+   "l_admitted": null,
+   "min_mamba_avail_after_admit": null,
+   "out": {
+    "L@g": 240.0,
+    "L_bytes": 8166,
+    "L_done": 240.5,
+    "M1@g": 234.7,
+    "M1_bytes": 130051,
+    "M1_done": 239.8,
+    "M2@g": 234.7,
+    "M2_bytes": 18995836,
+    "M2_done": 313.0
+   }
+  }
+ ],
+ "args": {
+  "url": "http://127.0.0.1:8080/generate",
+  "container": "llm-infer",
+  "expect": "safe",
+  "trials": 2,
+  "m1_tokens": 98000,
+  "m2_tokens": 98000,
+  "l_tokens": 150000,
+  "m1_out": 160,
+  "m2_out": 2800,
+  "l_out": 16,
+  "tree_pressure": 0,
+  "watchdog": 600,
+  "health_timeout": 300,
+  "outdir": null
+ },
+ "started": "2026-09-19 17:52:50"
+}

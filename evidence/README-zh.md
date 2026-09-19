@@ -156,3 +156,19 @@ chunked prefill 不入写通备份、mamba 锚点池按上游判据 `262144/cps`
 回归门禁(`verify-hicache-thrash.py`)现在要求真实的 host 装载
 (`sglang:load_back_tokens_total{pool="kv"}` 增量),而非只是响应快。
 证据:[`hicache-mamba-fix-0917/`](hicache-mamba-fix-0917/)。
+
+## SGLang v0.5.20 迁移与 HRRN 观察(2026-09-19)
+
+补丁构建重锚到 v0.5.20(`llm-infer:hicache-06e4f2ed`,树 `94602c9`):
+false-latch 锚点 scheduler.py:3661 → 3887(门控结构未变,上游仍未修);
+P1/P3/C 继续携带(#36647/#36770 仍 open;P3 跟随上游
+`mamba_component.py` → `components/mamba.py` 改名);**P2 退役** —— v0.5.20
+已在上游吸收 honest host-hit 语义(`host_loaded_length` +
+`materialized_host_hit_len()`)。LPM waitfix 故意不再烘焙:v0.5.20 自带
+`--schedule-policy hrrn`(aging 策略),以观察代替补丁。
+
+实机验收:T3 stash 门禁 `--expect safe` 2/2 PASS(0 崩溃行、0 重启);
+hicache thrash PASS(244K 冷 124 s → host 重载 35 s、`load_back` +136K →
+续传 0.4 s);latch T1 行为学 PASS。饥饿场景中确认 HRRN aging 生效
+(冷请求约 1 个回合即被准入,抢在一路热续传之前)。
+证据:[`mamba-stash-T3-0919/`](mamba-stash-T3-0919/)。

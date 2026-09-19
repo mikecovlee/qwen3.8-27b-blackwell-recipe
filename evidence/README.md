@@ -166,3 +166,20 @@ assert-crash the scheduler. After the `hicache-mamba-fix` patch build + `cps 614
 (`verify-hicache-thrash.py`) now demands a real host load-back
 (`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer. Evidence:
 [`hicache-mamba-fix-0917/`](hicache-mamba-fix-0917/).
+
+## SGLang v0.5.20 migration + HRRN observation (2026-09-19)
+
+Re-anchored the patch build onto v0.5.20 (`llm-infer:hicache-06e4f2ed`, tree
+`94602c9`): false-latch anchor moved scheduler.py:3661 → 3887 (gate shape
+unchanged, still unfixed upstream); P1/P3/C carried (PRs #36647/#36770 still
+open; P3 follows the upstream `mamba_component.py` → `components/mamba.py`
+rename); **P2 retired** — v0.5.20 absorbed the honest-host-hit metric upstream
+as `host_loaded_length` + `materialized_host_hit_len()`. The LPM waitfix is
+deliberately not baked: v0.5.20 ships `--schedule-policy hrrn` (aging-based),
+observed instead.
+
+Acceptance on the live stack: T3 stash gate `--expect safe` 2/2 PASS (0 crash
+lines, 0 restarts); hicache thrash PASS (244K cold 124 s → host reload 35 s,
+`load_back` +136K → continuation 0.4 s); latch T1 PASS behaviorally. HRRN aging
+confirmed in the starvation scenario (cold waiter admitted ≈1 round, before one
+hot overtaker). Evidence: [`mamba-stash-T3-0919/`](mamba-stash-T3-0919/).

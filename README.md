@@ -118,6 +118,11 @@ hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
 docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
   -t llm-infer:hicache-d6e72886 inference/patches
+# v0.5.20 OBSERVATION build (P2 retired as upstream-absorbed; LPM waitfix
+# dropped in favor of --schedule-policy hrrn; profile kv-fp8-text-image-v0520-hrrn.yml):
+#   docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
+#   docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
+#     -t llm-infer:hicache-06e4f2ed inference/patches
 # legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
