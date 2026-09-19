@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Acceptance: scheduler patches under --schedule-policy lpm on the d6e72886 build.
+"""Acceptance: sched-latch patch on the mainline build (v0.5.20 line, hrrn).
 
-Verifies both baked patches live, on a real load — designed to be run against an
-ISOLATED test instance so production traffic never skews the timings. Bring one up
-with a two-line compose override alongside your deployment file:
+Verifies the baked false-latch patch live, on a real load — designed to be run
+against an ISOLATED test instance so production traffic never skews the timings.
+Bring one up with a two-line compose override alongside your deployment file:
 
     # test-override.yml
     services:
@@ -15,22 +15,21 @@ with a two-line compose override alongside your deployment file:
     docker compose -f docker-compose.yml -f test-override.yml up -d
     python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
 
-T1 sched-latch-fix (false latch, scheduler.py:3661 anchor):
+T1 sched-latch-fix (false latch; anchor scheduler.py:3661 on d6e72886,
+scheduler.py:3887 on 06e4f2ed):
   A big cold prompt forces a long chunked prefill; a small request B is sent ~2.5s
   later. The bug latches batch_is_full until someone FINISHES, so the discriminator
   is NOT B's absolute TTFT — chunked prefill is inherently a single pipeline and B
   must queue behind A's prefill regardless. PASS := B starts decoding around A's
   PREFILL END, well before A's whole turn finishes.
-T2 sched-lpm-waitfix (T=20s N=1 boost):
-  two forced-long decodes (ignore_eos) fill both slots; cold C enqueues first, then
-  hot continuations A2/B2 (~99% prefix hit) overtake it in LPM order. PASS := C is
-  admitted before both hot overtakers (behavioral proof) with the boost hook active
-  in this window — a fresh log line, or silence because the #1-#3 print quota was
-  already spent before this test (see note below).
-  Note: boost lines print only for events #1-#3 then every #1000 (throttle by
-  design) — do not count log lines as the event counter.
 
-Exit 0 only if both pass.
+The former T2 (sched-lpm-waitfix starvation test) was retired on 2026-09-19
+together with the waitfix module, when upstream `--schedule-policy hrrn`
+(aging-based) became the mainline starvation mitigation; both live on in git
+history. Starvation behavior under hrrn is watched via production metrics,
+not gated here.
+
+Exit 0 only if T1 passes.
 """
 import argparse
 import json
@@ -43,7 +42,6 @@ import urllib.request
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://127.0.0.1:8080/generate")
 ap.add_argument("--container", default="llm-infer")
-ap.add_argument("--boost-t", type=float, default=20.0, help="must match SGLANG_LPM_WAIT_BOOST_SECONDS")
 ARGS = ap.parse_args()
 
 T0 = time.time()
@@ -83,8 +81,7 @@ def fire(out, tag, text, max_tok, delay=0.0):
 def patch_counts():
     p = subprocess.run(["docker", "logs", ARGS.container], capture_output=True, text=True)
     s = (p.stdout or "") + (p.stderr or "")
-    return (sum("suppressed false latch" in l for l in s.splitlines()),
-            sum("waitfix] boost" in l for l in s.splitlines()))
+    return sum("suppressed false latch" in l for l in s.splitlines())
 
 
 c0 = patch_counts()
@@ -102,36 +99,6 @@ sep = a_done - a_g if a_g and a_done else 0
 print(f"T1 latch:  A decode@{a_g} A turn-done@{a_done} B decode@{b_g}"
       f"  → B {'BEFORE' if t1 else 'AT'} A's finish (回合长度 {sep:.0f}s 的分辨窗)")
 
-# ---------------- T2: LPM wait boost ----------------
 c1 = patch_counts()
-o2 = {}
-hb = ("热循环共享前缀" + str(SALT) + "。")
-hs = []
-for nm, rep, nt in (("H1", 300, 1024), ("H2", 310, 1600)):
-    t = threading.Thread(target=fire, args=(o2, nm, hb * rep, nt))
-    hs.append(t)
-    t.start()
-    time.sleep(0.4)
-time.sleep(2.0)
-tc = threading.Thread(target=fire, args=(o2, "Ccold", "全新冷会话内容" + str(SALT) + "。" * 3, 8))
-tc.start()
-time.sleep(1.0)
-ta2 = threading.Thread(target=fire, args=(o2, "A2hot", hb * 300 + "续", 1024))
-ta2.start()
-time.sleep(1.0)
-tb2 = threading.Thread(target=fire, args=(o2, "B2hot", hb * 310 + "续", 1024))
-tb2.start()
-for t in hs + [tc, ta2, tb2]:
-    t.join(900)
-c2 = patch_counts()
-cg, a2g, b2g = o2.get("Ccold@g"), o2.get("A2hot@g"), o2.get("B2hot@g")
-boost_logged = (c2[1] - c1[1]) >= 1
-boost_throttled = c1[1] >= 3  # first-3 print quota already spent before T2 → silence expected
-t2 = all(isinstance(x, float) for x in (cg, a2g, b2g)) and cg < a2g and cg < b2g \
-    and (boost_logged or boost_throttled)
-print(f"T2 boost:  C@{cg} A2@{a2g} B2@{b2g} boost-log {c1[1]}→{c2[1]}"
-      f"{' (throttled)' if boost_throttled and not boost_logged else ''}")
-print(f"           C TTFT={o2.get('Ccold_ttft')}s (无 boost 预期≈2回合, 有 boost 预期≤T{ARGS.boost_t:.0f}+1回合)")
-
-print(f"\nlatch-log {c0[0]}→{c2[0]} | RESULT:", "PASS" if (t1 and t2) else "FAIL")
-sys.exit(0 if (t1 and t2) else 1)
+print(f"\nlatch-log {c0}→{c1} | RESULT:", "PASS" if t1 else "FAIL")
+sys.exit(0 if t1 else 1)
