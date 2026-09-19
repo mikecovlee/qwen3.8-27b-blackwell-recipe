@@ -49,7 +49,7 @@ DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-a
 DROP_BOOL = {"--disable-prefill-cuda-graph"}
 # Flags shared but intentionally different between variants (normalize the value).
 # mrr / mamba pool / graph bs move TOGETHER per profile (three-knob rule, see README
-# Tuning): fp8-text-image (mainline, v0.5.19 tree) runs 2/10/2 on 32 GB with the
+# Tuning): fp8-text-image (mainline, v0.5.20 tree) runs 2/10/2 on 32 GB with the
 # extra_buffer strategy; the legacy profiles (old pinned tree) run 4/16/4 + lazy.
 NORM = {"--kv-cache-dtype", "--mem-fraction-static", "--max-running-requests",
         "--max-mamba-cache-size", "--cuda-graph-max-bs-decode",

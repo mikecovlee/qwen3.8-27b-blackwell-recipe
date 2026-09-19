@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9"
-DERIVED_IMAGE="llm-infer:hicache-d6e72886"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f"
+DERIVED_IMAGE="llm-infer:hicache-06e4f2ed"
 PATCH_DIR="inference/patches"
 SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
 SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
@@ -50,7 +50,7 @@ if [[ "$VARIANT" == "fp8v" ]]; then
   log "pulling SGLang base image (${SGLANG_BASE_DIGEST})"
   docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
   log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-d6e72886/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-06e4f2ed/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
   SGLANG_IMAGE_FINAL="$DERIVED_IMAGE"
 else
   log "pulling SGLang image (${SGLANG_DIGEST_LEGACY})"

@@ -46,7 +46,7 @@ if [[ ! -f .env ]]; then
   sed -i "s#^MODELS_DIR=.*#MODELS_DIR=${HOME}/models#" .env
 fi
 if [[ "$VARIANT" == "fp8v" ]]; then
-  expected_image="llm-infer:hicache-d6e72886"
+  expected_image="llm-infer:hicache-06e4f2ed"
 else
   expected_image="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
 fi
