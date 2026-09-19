@@ -67,9 +67,15 @@
 # (first real load_back_tokens{pool="kv"} +36,608); branch continuation
 # 25.1 s -> 3.09 s.  --chunked-prefill-size 6144 + host mamba 7.0 GB = 88
 # slots satisfy the branch-reuse criterion 262144/6144 ~ 43 <= 10 + 88.
+# [2026-09-19] PROMOTED to mainline: v0.5.20 base (digest 06e4f2ed) + HRRN.
+#   waitfix retired (upstream --schedule-policy hrrn accepted as the starvation
+#   mitigation after the 09-19 acceptance suite: T3 safe 2/2, hicache thrash,
+#   latch T1); P2 patch retired (absorbed upstream). Image is hardcoded here —
+#   the ${SGLANG_IMAGE} indirection was dropped because a stale .env pin to a
+#   since-deleted tag silently broke `compose up -d` reconciliation.
 services:
   sglang:
-    image: ${SGLANG_IMAGE:-llm-infer:hicache-d6e72886}
+    image: llm-infer:hicache-06e4f2ed
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -82,9 +88,6 @@ services:
       - PYTHONUNBUFFERED=1
       # Reduce fragmentation pressure on the ~1.9 GB runtime headroom.
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      # LPM wait-boost (baked sched_lpm_waitfix): pin the longest waiter.
-      - SGLANG_LPM_WAIT_BOOST_SECONDS=20
-      - SGLANG_LPM_WAIT_BOOST_MAX=1
       # Host mamba pool for HiCache load-back anchors: 7.0 GB = 88 slots.
       # Criterion (upstream #36935): kv_pool_tokens/cps <= device + host slots
       # => 262144/6144 ~ 43 <= 10 + 88.  Costs +3.7 GB host RAM vs the
@@ -135,10 +138,10 @@ services:
       # stack (chunked prefill of 6144 tokens is compute-bound, not launch-bound).
       # Disabling it is what makes FP8 KV + vision + full 262144 fit on 32 GB.
       - --disable-prefill-cuda-graph
-      # LPM admission ordering (input-side SJF proxy: longer prefix hit first;
-      # hot continuations fast-path).  Pairs with sched_lpm_waitfix above.
+      # HRRN admission ordering (upstream aging-based policy; mainline since
+      # 2026-09-19, replacing lpm + the retired sched_lpm_waitfix).
       - --schedule-policy
-      - lpm
+      - hrrn
       - --reasoning-parser
       - qwen3
       - --tool-call-parser

@@ -15,7 +15,7 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 - 单张 32 GB 卡**常驻完整 262144 token 上下文**。
 - 并发流近线性扩展、零 retraction:默认 2 路(FP8 KV 档),NVFP4 档 4 路。
 - **FP8 KV + 视觉**为 32 GB 主线默认档(满 262144 上下文、mrr 2、关 prefill CUDA graph;
-  v0.5.19 树 + E10 mamba 定容);**NVFP4 KV + 视觉**用于 32 GB 上需要 4 路并发的场景
+  v0.5.20 树 + E10 mamba 定容);**NVFP4 KV + 视觉**用于 32 GB 上需要 4 路并发的场景
   (legacy 档,旧钉定树;已知偶发 reasoning 乱码不稳定);**FP8 KV 纯文本**用于高并发
   (4 路)纯文本场景(legacy 档)。
 - **分层 KV 缓存**(主机内存 L2),驱逐后重载极快。
@@ -87,8 +87,8 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 ```
 
 `make online` 调用 `scripts/online/setup.sh`,依次:检查 docker / GPU / compose →
-按变体准备 SGLang 镜像——`fp8v`(默认):按 digest 拉取钉定的 v0.5.19 基座并**构建烘焙补丁的
-派生镜像** `llm-infer:hicache-d6e72886`(来自 `inference/patches/`:调度器假闩锁 + LPM +
+按变体准备 SGLang 镜像——`fp8v`(默认):按 digest 拉取钉定的 v0.5.20 基座并**构建烘焙补丁的
+派生镜像** `llm-infer:hicache-06e4f2ed`(来自 `inference/patches/`:调度器假闩锁 +
 HiCache 混合 Mamba 补丁);
 legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网关镜像 → 下载模型到
 `$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,`SGLANG_IMAGE` 与变体匹配)→
@@ -104,15 +104,14 @@ legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网�
 cp .env.example .env          # 修改 MODELS_DIR 与 SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# 主线(fp8v):钉定 v0.5.19 基座 + 烘焙调度器 + HiCache 补丁
-docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
-docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
-  -t llm-infer:hicache-d6e72886 inference/patches
-# v0.5.20 观察期构建(P2 因上游已吸收而退役;不再烘焙 LPM waitfix,
-# 改用 --schedule-policy hrrn;profile 为 kv-fp8-text-image-v0520-hrrn.yml):
-#   docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
-#   docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
-#     -t llm-infer:hicache-06e4f2ed inference/patches
+# 主线(fp8v):钉定 v0.5.20 基座 + 烘焙调度器 + HiCache 补丁
+docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
+docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
+  -t llm-infer:hicache-06e4f2ed inference/patches
+# legacy v0.5.19 构建(保留以复现 09-19 之前的主线):
+#   docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
+#   docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
+#     -t llm-infer:hicache-d6e72886 inference/patches
 # legacy 变体(nvfp4 / fp8 纯文本)改为拉取旧钉定树:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
@@ -144,9 +143,9 @@ make offline BUNDLE=/path/to/bundle
 `inference/` 下有三个各自完整可读的 compose 文件,除下表所列外参数完全一致
 (`make check` 会强制校验这一点)。
 
-| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.19 树) | `kv-nvfp4-text-image.yml`(legacy,32 GB,4 路) | `kv-fp8-text-only.yml`(legacy,32 GB,4 路) |
+| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.20 树) | `kv-nvfp4-text-image.yml`(legacy,32 GB,4 路) | `kv-fp8-text-only.yml`(legacy,32 GB,4 路) |
 | --- | --- | --- | --- |
-| 镜像(默认) | `llm-infer:hicache-d6e72886`(派生;调度器 + HiCache 补丁均已烘焙) | `lmsysorg/sglang@sha256:b91d664a…`(旧钉定树,`/patches` 挂载) | 同 NVFP4 |
+| 镜像(默认) | `llm-infer:hicache-06e4f2ed`(派生;调度器 + HiCache 补丁均已烘焙) | `lmsysorg/sglang@sha256:b91d664a…`(旧钉定树,`/patches` 挂载) | 同 NVFP4 |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention 后端 | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
 | 视觉 | 开 | 开 | 关(`language_model_only`) |
@@ -155,13 +154,13 @@ make offline BUNDLE=/path/to/bundle
 | `--chunked-prefill-size` | `6144`(HiCache 锚点判据,见[调优要点](#调优要点)) | 2048(默认) | 2048(默认) |
 | `SGLANG_HICACHE_MAMBA_SIZE_GB` | `7.0`(88 个 host mamba 锚点) | 未设 | 未设 |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
-| `--schedule-policy` | `lpm` + LPM 超时钉顶 env(20 s / 1) | 默认(`fcfs`) | 默认(`fcfs`) |
+| `--schedule-policy` | `hrrn`(上游 aging;waitfix 已于 09-19 退役) | 默认(`fcfs`) | 默认(`fcfs`) |
 | `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | 无 |
 | 启动后显存余量(32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
 
 **怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
-代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.19 树 + 烘焙调度器/HiCache 补丁上。同一张卡需要
+代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.20 树 + 烘焙调度器/HiCache 补丁上。同一张卡需要
 4 路并发、且接受其**偶发 reasoning 乱码不稳定**([NVFP4 注意事项](#nvfp4-注意事项))时才选
 **NVFP4 KV + 视觉**(legacy);24 GB 卡上它是唯一有意义的选择;从不发图片且要高并发选
 **FP8 纯文本**(legacy)。48 GB+ 可把主线档上调为 mrr 4 / 池 20 / graph 4(池 = 5 × mrr,
@@ -185,7 +184,7 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
 `--max-running-requests`(mrr)、`--max-mamba-cache-size`、`--cuda-graph-max-bs-decode`
 必须一起改:
 
-- mamba 状态池钳制并发。主线(v0.5.19 树,`extra_buffer` + overlap 调度):上游自动定容为
+- mamba 状态池钳制并发。主线(v0.5.20 树,`extra_buffer` + overlap 调度):上游自动定容为
   **5 × mrr**(ratio 5 = 基础 3 + overlap 2),即池 10 → mrr 2、池 20 → mrr 4。legacy 档
   (旧钉定树,`extra_buffer_lazy`)按每请求 4 槽预算(`池 // 4`):池 16 → mrr 4。
 - CUDA graph 的 decode batch 必须覆盖 mrr,否则大 batch 会静默回退 eager(慢约 60%)。
@@ -193,7 +192,7 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
   (并关 prefill 图);legacy 的 NVFP4 与纯文本档 = `262144 / 4 / 16 / 4 / extra_buffer_lazy`
   (旧钉定树)。
 - 96 GB 卡可以三个旋钮同步上调(主线 ratio:mrr 6 / 池 30 / graph 8,保持 graph ≥ mrr)。
-  闩锁修复已在 v0.5.19 线的 mrr 2 上生产验证(24h+),legacy 树在 4 流上验证过;再上调务必用
+  闩锁修复已在 v0.5.19 线的 mrr 2 上生产验证(24h+,并于 09-19 在 v0.5.20 上经 T1 门禁复验),legacy 树在 4 流上验证过;再上调务必用
   `tools/concurrency-load.py`(`t1`、`soak`)复测后再信任。
 
 ### mamba 槽计价(为什么"小"的离线请求也能打满整卡)
@@ -203,7 +202,7 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
 = 2~3 槽。legacy 树上准入按每请求 4 槽预算(实测:池 8 上双流进行中 used 5 /
 evictable 2 / available 1)。
 
-v0.5.19 主线的 unified radix cache 多了一个消费者:**chunked prefill 请求的首次 stash
+主线(v0.5.19→v0.5.20)的 unified radix cache 多了一个消费者:**chunked prefill 请求的首次 stash
 会向树捐赠一个额外槽**——每请求峰值 = own + locked + 1 donated(上游 sizing 公式,由其
 单测 `test_mamba_donated_alloc_ratio.py` 钉死)。`extra_buffer_lazy` 下分配器只按每请求
 2 槽预算,池吃紧时会撞上 `assert slot is not None`("Can not alloc mamba cache")把调度器
@@ -221,7 +220,7 @@ v0.5.19 主线的 unified radix cache 多了一个消费者:**chunked prefill �
 ### 调度器假闩锁热修
 
 两棵钉定的 SGLang 树都有同一个假闩锁 bug(legacy `b91d664a` 在 `scheduler.py:3355`;
-v0.5.19 `d6e72886` 在 `scheduler.py:3661`):chunked prefill 的续传(已持有请求行、
+v0.5.19 `d6e72886` 在 `scheduler.py:3661`、v0.5.20 `06e4f2ed` 在 `scheduler.py:3887`):chunked prefill 的续传(已持有请求行、
 不申请新行)被计入 `can_run`,却与按空闲行算出的额度比较,于是双重计数、提前置位
 `batch_is_full`,把实际并发压到 `mrr - 1`。
 

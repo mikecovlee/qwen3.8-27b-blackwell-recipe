@@ -98,7 +98,7 @@ to a newer tree. Procedure:
 | P2 | **RETIRED 2026-09-19**: v0.5.20 (06e4f2ed) absorbed it upstream as `Req.host_loaded_length` + `materialized_host_hit_len()`; the img-06e4f2ed build carries no P2 files |
 | P3 | #36770 lands (still open as of v0.5.20; assert re-confirmed at components/mamba.py:495 after upstream's mamba_component.py -> mamba.py rename) |
 | C | upstream grows an equivalent explicit host-mamba sizing knob (watch #38644) |
-| sched-latch modules | upstream fixes the false-latch double count or adds aging to LPM (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19; HRRN policy now exists as the LPM-side fairness alternative) |
+| sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
 
 ## v0.5.20 build (img-06e4f2ed, tree 94602c9)
 
@@ -108,7 +108,8 @@ the `components/mamba_component.py` -> `components/mamba.py` rename, P1 re-place
 after the new `rotation_tail_declined` early-return in `cache_unfinished_req`.
 Exported patches under `img-06e4f2ed/patches/`; all-in-one Dockerfile verified
 against a clean checkout (git apply --check) and baked as
-`llm-infer:hicache-06e4f2ed`. Test profile: `../../kv-fp8-text-image-v0520-hrrn.yml`.
+`llm-infer:hicache-06e4f2ed` — the mainline build since 2026-09-19
+(`kv-fp8-text-image.yml`; the observation profile was folded into it and deleted).
 
 Until then these are backports carried for the v0.5.19 line; the all-in-one image
 is the supported production build.

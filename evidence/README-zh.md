@@ -172,3 +172,7 @@ hicache thrash PASS(244K 冷 124 s → host 重载 35 s、`load_back` +136K →
 续传 0.4 s);latch T1 行为学 PASS。饥饿场景中确认 HRRN aging 生效
 (冷请求约 1 个回合即被准入,抢在一路热续传之前)。
 证据:[`mamba-stash-T3-0919/`](mamba-stash-T3-0919/)。
+
+运营当日即接受 HRRN(验收全绿、早期生产行为干净):waitfix 模块与其 T2
+行为测试退役(git 历史保留),`06e4f2ed` + `hrrn` 自 2026-09-19 起为主线;
+原观察 profile 已并入 `kv-fp8-text-image.yml` 并删除。

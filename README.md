@@ -18,7 +18,7 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 - Concurrent streams with near-linear batch scaling and zero retractions: 2 by
   default (FP8 KV profile), 4 with the NVFP4 profile.
 - **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
-  mrr 2, prefill CUDA graph off; v0.5.19 tree + E10 mamba sizing); **NVFP4 KV +
+  mrr 2, prefill CUDA graph off; v0.5.20 tree + E10 mamba sizing); **NVFP4 KV +
   vision** for 4 streams on 32 GB (legacy profile, old pinned tree; known occasional
   garbled-reasoning instability); **FP8 KV text-only** for high-concurrency (4 streams)
   text-only serving (legacy profile).
@@ -95,8 +95,8 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 
 `make online` runs `scripts/online/setup.sh`, which:
 1. checks docker / GPU / compose,
-2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.19
-   base by digest and **builds the patched derived image** `llm-infer:hicache-d6e72886`
+2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.20
+   base by digest and **builds the patched derived image** `llm-infer:hicache-06e4f2ed`
    from `inference/patches/` (scheduler false-latch + LPM + HiCache hybrid-Mamba
    patches); legacy variants: pull the old pinned image
    (digest, with a tag fallback) — and pulls the gateway image,
@@ -114,15 +114,14 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# mainline (fp8v): pinned v0.5.19 base + baked scheduler + HiCache patches
-docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
-docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
-  -t llm-infer:hicache-d6e72886 inference/patches
-# v0.5.20 OBSERVATION build (P2 retired as upstream-absorbed; LPM waitfix
-# dropped in favor of --schedule-policy hrrn; profile kv-fp8-text-image-v0520-hrrn.yml):
-#   docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
-#   docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
-#     -t llm-infer:hicache-06e4f2ed inference/patches
+# mainline (fp8v): pinned v0.5.20 base + baked scheduler + HiCache patches
+docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
+docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
+  -t llm-infer:hicache-06e4f2ed inference/patches
+# legacy v0.5.19 build (kept to reproduce the pre-09-19 mainline):
+#   docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
+#   docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
+#     -t llm-infer:hicache-d6e72886 inference/patches
 # legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
@@ -155,9 +154,9 @@ services and waits for health.
 Three self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.19 tree) | `kv-nvfp4-text-image.yml` (legacy, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (legacy, 32 GB, 4 streams) |
+| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.20 tree) | `kv-nvfp4-text-image.yml` (legacy, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (legacy, 32 GB, 4 streams) |
 | --- | --- | --- | --- |
-| image (default) | `llm-infer:hicache-d6e72886` (derived; scheduler + HiCache patches baked in) | `lmsysorg/sglang@sha256:b91d664a…` (old pinned tree, `/patches` mount) | same as NVFP4 |
+| image (default) | `llm-infer:hicache-06e4f2ed` (derived; scheduler + HiCache patches baked in) | `lmsysorg/sglang@sha256:b91d664a…` (old pinned tree, `/patches` mount) | same as NVFP4 |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention backend | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
 | vision | enabled | enabled | disabled (`language_model_only`) |
@@ -166,14 +165,14 @@ except the ones below (`make check` enforces this):
 | `--chunked-prefill-size` | `6144` (HiCache anchor criterion, see Tuning) | 2048 (default) | 2048 (default) |
 | `SGLANG_HICACHE_MAMBA_SIZE_GB` | `7.0` (88 host mamba anchors) | unset | unset |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
-| `--schedule-policy` | `lpm` + LPM wait-boost env (20 s / 1) | default (`fcfs`) | default (`fcfs`) |
+| `--schedule-policy` | `hrrn` (upstream aging; waitfix retired 09-19) | default (`fcfs`) | default (`fcfs`) |
 | `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | none |
 | free VRAM after load (32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
 
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
-each), on the v0.5.19 tree with baked-in scheduler + HiCache patches. Pick **NVFP4 KV + vision**
+each), on the v0.5.20 tree with baked-in scheduler + HiCache patches. Pick **NVFP4 KV + vision**
 (legacy) only when you need 4 streams on the same card and accept its **occasional
 garbled-reasoning instability** ([NVFP4 caveats](#nvfp4-caveats)) — or on a **24 GB**
 card, where its smaller KV footprint is the only meaningful option. Pick **FP8
@@ -201,7 +200,7 @@ All of it was measured on the target card.
 `--max-running-requests` (mrr), `--max-mamba-cache-size` and `--cuda-graph-max-bs-decode`
 must move together:
 
-- The mamba state pool caps concurrency. Mainline (v0.5.19 tree, `extra_buffer` +
+- The mamba state pool caps concurrency. Mainline (v0.5.20 tree, `extra_buffer` +
   overlap schedule): upstream auto-sizes the pool at **5 × mrr** (ratio 5 = 3 base + 2
   for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The legacy profiles (old
   pinned tree, `extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
@@ -213,7 +212,7 @@ must move together:
   profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` on the old pinned tree.
 - On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
   graph 8, keeping graph ≥ mrr). The latch fix is validated at mrr 2 in production
-  (v0.5.19 line, 24 h+) and at 4 streams on the legacy tree; re-run
+  (v0.5.19 line, 24 h+; re-verified on v0.5.20 by the 09-19 T1 gate) and at 4 streams on the legacy tree; re-run
   `tools/concurrency-load.py` (`t1`, `soak`) before trusting higher values.
 
 ### Mamba slot accounting (why small offline requests saturate the card too)
@@ -224,7 +223,7 @@ holds 1 active + up to 2 checkpoints on its path (track interval 256, capped by
 per request (measured: two streams in flight on pool 8 => used 5 / evictable 2 /
 available 1).
 
-On the v0.5.19 mainline the unified radix cache adds one more consumer: the **first
+On the mainline (v0.5.19→v0.5.20) the unified radix cache adds one more consumer: the **first
 stash of a chunked-prefill request donates an extra slot** to the tree — peak per
 request = own + locked + 1 donated (upstream sizing formula, pinned by its unit test
 `test_mamba_donated_alloc_ratio.py`). Under `extra_buffer_lazy` the allocator budgets
@@ -248,7 +247,7 @@ Operational rule: run offline/batch workloads under their **own gateway token** 
 ### The scheduler false-latch patch
 
 Both pinned SGLang trees have the same false-latch bug (legacy `b91d664a` at
-`scheduler.py:3355`; v0.5.19 `d6e72886` at `scheduler.py:3661`): a chunked-prefill
+`scheduler.py:3355`; v0.5.19 `d6e72886` at `scheduler.py:3661`; v0.5.20 `06e4f2ed` at `scheduler.py:3887`): a chunked-prefill
 continuation (which already holds a request row and does not allocate a new one) is
 counted in `can_run`, so it is compared against a budget derived from free rows. This
 double-counts and sets `batch_is_full` early, capping effective concurrency at
@@ -256,7 +255,7 @@ double-counts and sets `batch_is_full` early, capping effective concurrency at
 
 The patch lives in `inference/patches/sched-latch-fix/`, organized one build per
 pinned image (`img-<digest>/`; see its README for the upgrade procedure). The mainline
-`kv-fp8-text-image` profile pins the **derived image `llm-infer:hicache-d6e72886`**
+`kv-fp8-text-image` profile pins the **derived image `llm-infer:hicache-06e4f2ed`**
 (all-in-one build from `inference/patches/`, which also carries the HiCache hybrid-Mamba
 patches below): the scheduler patches are baked in via a `.pth` import — the v0.5.19
 base ships a system `sitecustomize.py` that silently shadows the old

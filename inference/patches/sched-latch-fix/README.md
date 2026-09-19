@@ -24,7 +24,7 @@ one-time loud warning then no-op. Retire when upstream adds aging/fairness to LP
 |---|---|---|
 | `lmsysorg/sglang@sha256:b91d664a…` (dev tree `5f55db35`, 2026-08-22) | `img-b91d664a/sitecustomize.py` | bind-mount the dir as `/patches` + `PYTHONPATH=/patches` (all profiles here do this) |
 | `lmsysorg/sglang@sha256:d6e72886…` (= `latest`, tree `0bcd822`, v0.5.19, 2026-09-04) | `img-d6e72886/` | derived image via its `Dockerfile`: module + `99-sched-latch-fix.pth` baked into site-packages |
-| `lmsysorg/sglang@sha256:06e4f2ed…` (tree `94602c9`, v0.5.20, 2026-09-18) | `img-06e4f2ed/` | same bake, anchor re-verified at scheduler.py:3887 (double-count gate gained `candidate_beam_width`; shape unchanged). **`sched_lpm_waitfix` intentionally NOT baked**: v0.5.20 ships `--schedule-policy hrrn` (upstream aging) — observe that first |
+| `lmsysorg/sglang@sha256:06e4f2ed…` (tree `94602c9`, v0.5.20, 2026-09-18) | `img-06e4f2ed/` | same bake, anchor re-verified at scheduler.py:3887 (double-count gate gained `candidate_beam_width`; shape unchanged). **`sched_lpm_waitfix` NOT baked (retired 2026-09-19)**: upstream `--schedule-policy hrrn` accepted as the starvation mitigation; this is the mainline build since 09-19 |
 
 Transitional copy note: the repo-root `sitecustomize.py` is a byte-identical copy of the
 b91d664a build so that containers created before this restructure (they bind-mount the

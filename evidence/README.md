@@ -183,3 +183,9 @@ lines, 0 restarts); hicache thrash PASS (244K cold 124 s → host reload 35 s,
 `load_back` +136K → continuation 0.4 s); latch T1 PASS behaviorally. HRRN aging
 confirmed in the starvation scenario (cold waiter admitted ≈1 round, before one
 hot overtaker). Evidence: [`mamba-stash-T3-0919/`](mamba-stash-T3-0919/).
+
+Operator accepted HRRN the same day (acceptance suite green; early production
+behavior clean): the waitfix module and its T2 behavioral test are retired
+(git history preserves both), and `06e4f2ed` + `hrrn` is the mainline build
+from 2026-09-19; the observation profile was folded into
+`kv-fp8-text-image.yml` and deleted.

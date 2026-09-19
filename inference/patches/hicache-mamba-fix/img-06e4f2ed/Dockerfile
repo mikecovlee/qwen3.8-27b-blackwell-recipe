@@ -5,8 +5,8 @@
 #
 # Combines:
 #   - inference/patches/sched-latch-fix/img-06e4f2ed/  (false-latch only — the
-#     LPM waitfix is dropped: v0.5.20 ships --schedule-policy hrrn upstream,
-#     observe that first; baked via 99-sched-latch-fix.pth),
+#     LPM waitfix retired 2026-09-19 in favor of upstream --schedule-policy
+#     hrrn; baked via 99-sched-latch-fix.pth),
 #   - inference/patches/hicache-mamba-fix/img-06e4f2ed/patches/  (5-file HiCache
 #     hybrid-Mamba fix re-anchored onto the v0.5.20 tree — see parent README).
 #
