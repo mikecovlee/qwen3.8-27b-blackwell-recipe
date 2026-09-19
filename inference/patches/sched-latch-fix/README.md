@@ -5,25 +5,19 @@
 ```
 img-<first8-of-image-digest>/   one directory per serve-image digest
   ├─ sitecustomize.py           mount-based build (must keep this exact filename)   → img-b91d664a
-  └─ sched_latch_fix.py         baked build (free name, loaded via .pth)            → img-d6e72886
-     sched_lpm_waitfix.py       optional companion: bounded wait under LPM (see below)
+  └─ sched_latch_fix.py         baked build (free name, loaded via .pth)            → img-06e4f2ed
      Dockerfile                  derived-image recipe (baked builds only)
 ```
 
-`sched_lpm_waitfix.py` fixes LPM's known starvation gap (upstream sorts by prefix-hit
-length with no aging — a cache-cold request can be overtaken forever while hot
-continuations keep arriving). After each `calc_priority` pass it prepends the N
-longest-waiting requests whose wait exceeds T (same `time.perf_counter` clock as
-`time_stats.wait_queue_entry_time`). Enable per deployment via env:
-`SGLANG_LPM_WAIT_BOOST_SECONDS=<T>` (0/unset = pure LPM), `SGLANG_LPM_WAIT_BOOST_MAX=<N>`
-(1 = one boost per pass, matching the single-chunked-prefill admission budget).
-Active only when the resolved policy is LPM; every internal error degrades to a
-one-time loud warning then no-op. Retire when upstream adds aging/fairness to LPM.
+`sched_lpm_waitfix.py` (LPM starvation guard: prepend the longest waiter once its
+wait exceeds T) shipped with the v0.5.19 build and was **retired 2026-09-19**, when
+v0.5.20's upstream `--schedule-policy hrrn` (aging-based) became the mainline
+starvation mitigation. The module and its T2 acceptance test live on in git history.
 
 | Serve image (compose `image:`) | Build | How it loads |
 |---|---|---|
 | `lmsysorg/sglang@sha256:b91d664a…` (dev tree `5f55db35`, 2026-08-22) | `img-b91d664a/sitecustomize.py` | bind-mount the dir as `/patches` + `PYTHONPATH=/patches` (all profiles here do this) |
-| `lmsysorg/sglang@sha256:d6e72886…` (= `latest`, tree `0bcd822`, v0.5.19, 2026-09-04) | `img-d6e72886/` | derived image via its `Dockerfile`: module + `99-sched-latch-fix.pth` baked into site-packages |
+| `lmsysorg/sglang@sha256:d6e72886…` (tree `0bcd822`, v0.5.19, 2026-09-04) | *(build dir removed 2026-09-19 — git history)* | was: derived image, module + waitfix + `99-sched-latch-fix.pth`; anchor scheduler.py:3661 |
 | `lmsysorg/sglang@sha256:06e4f2ed…` (tree `94602c9`, v0.5.20, 2026-09-18) | `img-06e4f2ed/` | same bake, anchor re-verified at scheduler.py:3887 (double-count gate gained `candidate_beam_width`; shape unchanged). **`sched_lpm_waitfix` NOT baked (retired 2026-09-19)**: upstream `--schedule-policy hrrn` accepted as the starvation mitigation; this is the mainline build since 09-19 |
 
 Transitional copy note: the repo-root `sitecustomize.py` is a byte-identical copy of the
@@ -32,9 +26,10 @@ parent dir itself) keep the patch across restarts until the next `docker compose
 recreates them against `img-b91d664a/`. Safe to delete once no pre-restructure container
 is in use; never edit it in place — the `img-*` dirs are canonical.
 
-Each build pins its anchor in `scheduler.py`: b91d664a → line 3355, d6e72886 → line 3661
-(both the `running_batch.batch_is_full = True` assignment behind the
-`len(adder.can_run_list) >= get_num_allocatable_reqs(...)` check).
+Each build pins its anchor in `scheduler.py`: b91d664a → line 3355, 06e4f2ed → line
+3887 (both the `running_batch.batch_is_full = True` assignment behind the
+`len(adder.can_run_list) >= get_num_allocatable_reqs(...)` check; the removed
+d6e72886 build used 3661).
 
 ⚠ Why the two load differently: the `latest` base ships Ubuntu's
 `/usr/lib/python3.12/sitecustomize.py` (apport hook), which satisfies Python's startup
@@ -45,7 +40,7 @@ before the editable-install finder's `__editable__.sglang-*.pth`, so an eager
 `import sglang` at .pth time fails) and self-verifies its anchor line at install time
 (drift → loud `INSTALL FAILED` listing candidate lines). The legacy b91d664a build predates
 both mechanisms, works via PYTHONPATH, and is frozen as-is. New builds follow the
-`img-d6e72886` pattern.
+`img-06e4f2ed` pattern.
 
 ## What the bug is
 
@@ -64,7 +59,7 @@ maintainer's deployment (mrr-2 wall removed, no other behavior change).
 
 ## Adding a build for a new image digest `sha256:XXXXXXXX…`
 
-1. `mkdir img-XXXXXXXX`, copy `img-d6e72886/sched_latch_fix.py` and `img-d6e72886/Dockerfile`
+1. `mkdir img-XXXXXXXX`, copy `img-06e4f2ed/sched_latch_fix.py` and `img-06e4f2ed/Dockerfile`
    into it; update the `FROM` digest and the log prefix.
 2. Find the latch line:
    `docker run --rm --network=none --entrypoint bash <image> -c "grep -n 'running_batch.batch_is_full = True' /sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py"`

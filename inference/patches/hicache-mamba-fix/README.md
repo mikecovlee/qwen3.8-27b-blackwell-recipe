@@ -4,7 +4,7 @@
 
 ```
 img-<first8-of-image-digest>/   one directory per serve-image digest
-  ├─ patches/                   7 context diffs against the image's
+  ├─ patches/                   context diffs against the image's
   │                             /sgl-workspace/sglang checkout (git format,
   │                             one file per modified source file)
   └─ Dockerfile                  all-in-one derived image recipe: sched-latch
@@ -16,8 +16,8 @@ both patch families:
 
 ```
 cd inference/patches
-docker build -f hicache-mamba-fix/img-d6e72886/Dockerfile -t llm-infer:hicache-d6e72886 .
-docker run --rm --network=none --entrypoint python3 llm-infer:hicache-d6e72886 \
+docker build -f hicache-mamba-fix/img-06e4f2ed/Dockerfile -t llm-infer:hicache-06e4f2ed .
+docker run --rm --network=none --entrypoint python3 llm-infer:hicache-06e4f2ed \
   -c "import sglang.srt.managers.scheduler"   # expects the sched-latch self-check
                                               # to log 'anchor verified' + 'installed'
 ```
@@ -34,6 +34,8 @@ tier, so every eviction paid a full re-prefill:
 2. **The host-hit metric was a phantom.** `host_hit_length` counts radix hits,
    not materialized tokens: a request served entirely from *device* cache
    reported host hits with no host→device transfer, hiding the miss. `[P2]`
+   *(carried on the v0.5.19 build; **retired on v0.5.20** — absorbed upstream as
+   `host_loaded_length` + `materialized_host_hit_len()`.)*
 3. **A mamba slot shortage crashed the scheduler** instead of degrading
    (`assert slot is not None` in `_alloc_mamba_slot`, upstream #34975 /
    PR #36770). `[P3]`
@@ -43,7 +45,7 @@ tier, so every eviction paid a full re-prefill:
    (upstream #36935); `[C]` adds `SGLANG_HICACHE_MAMBA_SIZE_GB` to size the host
    pool directly. Default profile: `262144 / 6144 ≈ 43 ≤ 10 + 88`.
 
-## Patches (against tree 0bcd822, release/v0.5.19 line)
+## Patches (v0.5.19 build, against tree 0bcd822 — historical; the v0.5.20 build drops P2, see below)
 
 | Patch | File(s) | What it does | Upstream |
 |---|---|---|---|
@@ -74,7 +76,8 @@ Evidence: `evidence/hicache-mamba-fix-0917/`.
 
 ## Adding a build for a new image digest
 
-The patches are context diffs against 0bcd822 and will usually not apply unchanged
+The patches are context diffs against their pinned tree (0bcd822 for the removed
+v0.5.19 build, 94602c9 for the current one) and will usually not apply unchanged
 to a newer tree. Procedure:
 
 1. Start a container from the new image; confirm `git status` in
@@ -111,5 +114,5 @@ against a clean checkout (git apply --check) and baked as
 `llm-infer:hicache-06e4f2ed` — the mainline build since 2026-09-19
 (`kv-fp8-text-image.yml`; the observation profile was folded into it and deleted).
 
-Until then these are backports carried for the v0.5.19 line; the all-in-one image
-is the supported production build.
+These are backports carried until the upstream PRs in the retirement table land;
+the img-06e4f2ed all-in-one is the supported production build.

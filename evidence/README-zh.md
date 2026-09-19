@@ -143,7 +143,8 @@ v0.5.19 切换后 13h 的生产崩溃:`stash_chunked_request` 期间 `_alloc_mam
 fail-loud 设计)。修复 = E10:`--mamba-radix-cache-strategy extra_buffer` +
 `--max-mamba-cache-size 10`(上游自动定容 ratio 5 × mrr 2)。KV 池维持 262144 token 不变
 (受 flag 卡而非内存卡;+0.16GB 被静态预算余量吸收)。孪生验证、回归数据与新验收件
-`verify-mamba-stash.py`(T3,镜像升级门禁):[`mamba-stash-T3-0915/`](mamba-stash-T3-0915/)。
+`verify-mamba-stash.py`(T3,镜像升级门禁)。0915 的 A/B 原始记录已在 09-19 仓库清理中
+移除(git 历史可查);最新一轮 T3 见 [`mamba-stash-T3-0919/`](mamba-stash-T3-0919/)。
 
 ## HiCache 混合 Mamba 修复与 host 池定容(2026-09-17)
 

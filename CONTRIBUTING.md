@@ -17,7 +17,7 @@ than forking them into local copies.
    (`inference/patches/sched-latch-fix/`, `inference/patches/hicache-mamba-fix/`)
    following each directory's README (re-anchor, self-check, smoke).
 3. On an isolated test instance (same profiles, different container name and host
-   port — never against live traffic), run both suites in
+   port — never against live traffic), run the acceptance gates in
    `inference/tools/acceptance/`; they exit non-zero on failure.
 4. Only then switch the profile's `image:` line.
 

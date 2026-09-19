@@ -149,8 +149,9 @@ slots/req — upstream FIXME plus a unit test pin this as fail-loud by design). 
 `--mamba-radix-cache-strategy extra_buffer` + `--max-mamba-cache-size 10` (upstream
 auto-sizing ratio 5 × mrr 2). KV pool unchanged at 262144 tokens (flag-bound; the
 +0.16 GB is absorbed by static-budget headroom). Twin verification, regression numbers
-and the new `verify-mamba-stash.py` (T3) upgrade gate:
-[`mamba-stash-T3-0915/`](mamba-stash-T3-0915/).
+and the new `verify-mamba-stash.py` (T3) upgrade gate. Raw 09-15 A/B logs were
+removed in the 2026-09-19 repo cleanup (git history); the latest T3 run is
+[`mamba-stash-T3-0919/`](mamba-stash-T3-0919/).
 
 ## HiCache hybrid-Mamba fix & host-pool sizing (2026-09-17)
 

@@ -108,10 +108,6 @@ hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
 docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
   -t llm-infer:hicache-06e4f2ed inference/patches
-# legacy v0.5.19 构建(保留以复现 09-19 之前的主线):
-#   docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
-#   docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
-#     -t llm-infer:hicache-d6e72886 inference/patches
 # legacy 变体(nvfp4 / fp8 纯文本)改为拉取旧钉定树:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
@@ -210,7 +206,7 @@ evictable 2 / available 1)。
 2 槽上被准入,其 stash 需要第 9 槽)。**E10 修复**(此后为主线):`extra_buffer`
 (预算 3,准入拒绝排队而非超额承诺)+ 池 **10** = 上游 ratio 5 × mrr 2。主线实测:双流
 峰值用 8/10,恰好留下 2 槽 stash 余量。回归门禁:
-`inference/tools/acceptance/verify-mamba-stash.py`(证据:`evidence/mamba-stash-T3-0915/`)。
+`inference/tools/acceptance/verify-mamba-stash.py`(最新证据:`evidence/mamba-stash-T3-0919/`)。
 
 后果(不变):一个离线"RM 打分"循环——prompt 60~1300 token、生成顶满 700、
 30~50 req/min——按 Little 定律需要 10~15 路并发,足以把任何交互服务钉死在满 mrr,
@@ -219,30 +215,22 @@ evictable 2 / available 1)。
 
 ### 调度器假闩锁热修
 
-两棵钉定的 SGLang 树都有同一个假闩锁 bug(legacy `b91d664a` 在 `scheduler.py:3355`;
-v0.5.19 `d6e72886` 在 `scheduler.py:3661`、v0.5.20 `06e4f2ed` 在 `scheduler.py:3887`):chunked prefill 的续传(已持有请求行、
-不申请新行)被计入 `can_run`,却与按空闲行算出的额度比较,于是双重计数、提前置位
-`batch_is_full`,把实际并发压到 `mrr - 1`。
+两棵钉定的 SGLang 树都有同一个假闩锁 bug(主线 v0.5.20 `06e4f2ed` 在
+`scheduler.py:3887`,legacy `b91d664a` 锚点 3355——更早锚点见 git 历史):chunked prefill
+的续传(已持有请求行、不申请新行)被计入 `can_run`,却与按空闲行算出的额度比较,
+于是双重计数、提前置位 `batch_is_full`,把实际并发压到 `mrr - 1`。
 
-补丁位于 `inference/patches/sched-latch-fix/`,按钉定镜像一构建一目录(`img-<digest>/`,
-升级流程见其 README)。主线 `kv-fp8-text-image` 档钉定**派生镜像
-`llm-infer:hicache-d6e72886`**(一体构建自 `inference/patches/`:本补丁族 + 下节的
-HiCache 混合 Mamba 补丁):调度器补丁经 `.pth` import 烘焙——
-v0.5.19 基座自带的系统 `sitecustomize.py` 会静默遮蔽旧的 `PYTHONPATH=/patches` 挂载法——
-启动时**自检锚点、漂移即响亮报错**,并含 LPM 超时钉顶伴生模块,主线档默认启用
-(`--schedule-policy lpm` + `SGLANG_LPM_WAIT_BOOST_SECONDS=20` / `SGLANG_LPM_WAIT_BOOST_MAX=1`:
-等待超过 20 s 的冷请求一次性跳到 LPM 队首——只改顺序、不加容量;env 设 0 即禁用)。
-legacy 档仍钉定 `b91d664a`,经 `/patches` 挂载加载 `img-b91d664a/sitecustomize.py`
-(**按行号 3355 + 函数名匹配**——镜像升级后必须复核锚点,否则钩子静默失效;安全:退化为
-`mrr - 1`)。
+补丁位于 `inference/patches/sched-latch-fix/`,按钉定镜像一构建一目录(重锚流程见其
+README)。主线档钉定**派生镜像 `llm-infer:hicache-06e4f2ed`**(一体构建自
+`inference/patches/`:本补丁 + 下节的 HiCache 混合 Mamba 补丁):调度器补丁经 `.pth`
+import 烘焙——基座自带的系统 `sitecustomize.py` 会静默遮蔽旧的 `PYTHONPATH=/patches`
+挂载法——且**启动时自检锚点、漂移即响亮报错**。legacy 档仍钉定 `b91d664a`,经
+`/patches` 挂载加载 `img-b91d664a/sitecustomize.py`(按行号 + 函数名匹配——镜像升级后
+必须复核锚点,否则钩子静默失效;安全:退化为 `mrr - 1`)。
 
-两个构建共享同一条抑制规则:只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制
-假闩锁——因此绝不会过度准入,任何 `mrr` 下都安全。
-
-假闩锁需要存在"正在进行的分块 prefill"——即 prompt 超过 `chunked_prefill_size`
-(2048 legacy / 6144 主线)被切成多 pass 续传。只有此时,第二路请求**在该 prefill 尚未结束
-时到达**,才会被压到第一路 prefill 结束(瞬时 `mrr - 1`),停滞时长等于该 prefill 的时长。
-同一 pass 内同时到达的两路都会进;≤`chunked_prefill_size` 的 prompt 根本不会分块,均不受影响。
+抑制规则:只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制假闩锁——绝不会
+过度准入,任何 `mrr` 下都安全。触发条件:存在超过 `chunked_prefill_size`(2048 legacy /
+6144 主线)的分块 prefill,且第二路请求在其进行中到达;不超过分块尺寸的 prompt 不受影响。
 
 ### 上下文池预算与 prefill CUDA graph
 
@@ -277,16 +265,17 @@ token 的重载从约 109 s 降到 <1 s,decode/TTFT 无回退。`ratio 2` 约占
 
 ### HiCache 混合 Mamba 修复
 
-原版 v0.5.19 的 HiCache 在这类混合 GDN(Mamba)模型上并没有真正复用 host 层:chunked
+原版 SGLang 的 HiCache 在这类混合 GDN(Mamba)模型上并没有真正复用 host 层:chunked
 prefill 从不写通备份(chunked 节点被按操作计的命中计数跳过)、mamba 锚点池远低于上游
 判据 `kv_pool_tokens × hicache_ratio / chunked_prefill_size`(旧 cps 2048 时需要约 128
-个,实际只有 10 设备 + 20 host)、host-hit 计数是幻影(device 常驻 token 记到了 host
-层),且 mamba 分配饥饿会把调度器断言打崩。`inference/patches/hicache-mamba-fix/` 一体
-解决这四点(chunked 写通回移 #36647;诚实的 `loaded_host_hit_length` 分层 #26976;mamba
-耗尽时跳过而非断言 #36770;`SGLANG_HICACHE_MAMBA_SIZE_GB` host 池旋钮)——锚点、上游
-状态与退役表见该目录 README。主线跑 `--chunked-prefill-size 6144`(8192 会把池打
+个,实际只有 10 设备 + 20 host),且 mamba 分配饥饿会把调度器断言打崩。
+`inference/patches/hicache-mamba-fix/` 一体解决这三点(chunked 写通回移 #36647;mamba
+耗尽时跳过而非断言 #36770;`SGLANG_HICACHE_MAMBA_SIZE_GB` host 池旋钮)。第四项——诚实
+host-hit 计数——曾以本地补丁携带于 v0.5.19,**v0.5.20 已被上游吸收**
+(`host_loaded_length` / `materialized_host_hit_len()`),随之退役;锚点、上游状态与
+退役表见该目录 README。主线跑 `--chunked-prefill-size 6144`(8192 会把池打
 OOM)+ `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` = 约 88 个 host 锚点,满足判据 262144/6144
-≈ 43 ≤ 10 + 88。回归门禁 `verify-hicache-thrash.py` 现在要求出现真实 host 装载
+≈ 43 ≤ 10 + 88。回归门禁 `verify-hicache-thrash.py` 要求出现真实 host 装载
 (`sglang:load_back_tokens_total{pool="kv"}`),而不只是"答得快";测量见
 `evidence/hicache-mamba-fix-0917/`。
 
@@ -321,8 +310,8 @@ OOM)+ `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` = 约 88 个 host 锚点,满足判据 2
   准入拒绝排队而非超额承诺)+ 池 10(上游 ratio 5 × mrr 2)。断言本身是上游 fail-loud 设计
   (main 分支今天仍在);主线补丁构建另含上游「跳过而非断言」回移(#36770,经
   `radix_cache_aux_alloc_failed_total` 计数)。回归门禁:
-  `inference/tools/acceptance/verify-mamba-stash.py`,证据见 `evidence/mamba-stash-T3-0915/`
-  与 `evidence/hicache-mamba-fix-0917/`。
+  `inference/tools/acceptance/verify-mamba-stash.py`(最新证据:`evidence/mamba-stash-T3-0919/`;
+  09-15 的 A/B 原始记录见 git 历史)。
 - **`--mm-process-config` 用的是像素「面积」而非边长**。本版处理器忽略 `image.max_pixels`,
   必须用 `image.size.longest_edge`(2097152 = 2 Mpx 面积)。
 - **图片需要 `--image-processor-backend pil`**。GPU 处理器会一次性把所有图 resize 成 fp32
@@ -446,12 +435,12 @@ make check     # compose 一致性 + 机密扫描
 ├── Makefile  .env.example
 ├── inference/
 │   ├── kv-fp8-text-image.yml       主线默认:FP8 KV + 视觉(32 GB,mrr 2,
-│   │                               v0.5.19 树,E10 + hicache 修复:cps 6144、host mamba 7 GB)
+│   │                               v0.5.20 树、hrrn,E10 + hicache 修复:cps 6144、host mamba 7 GB)
 │   ├── kv-nvfp4-text-image.yml     legacy:NVFP4 KV + 视觉(32 GB,mrr 4,旧钉定树)
 │   ├── kv-fp8-text-only.yml        legacy:FP8 KV,纯文本,4 路(旧钉定树)
-│   ├── patches/sched-latch-fix/    调度器补丁(假闩锁 / LPM 超时钉顶)
-│   ├── patches/hicache-mamba-fix/  HiCache 补丁(写通、诚实指标、host 池定容)
-│   └── tools/acceptance/           验收套件(T1/T2 调度、T3 mamba stash、T4 hicache)
+│   ├── patches/sched-latch-fix/    调度器假闩锁补丁(按钉定镜像一构建一目录)
+│   ├── patches/hicache-mamba-fix/  HiCache 补丁(写通、分配降级、host 池定容)
+│   └── tools/acceptance/           验收门禁(T1 闩锁、T3 mamba stash、T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md

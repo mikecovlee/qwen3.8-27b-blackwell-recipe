@@ -97,7 +97,7 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 1. checks docker / GPU / compose,
 2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.20
    base by digest and **builds the patched derived image** `llm-infer:hicache-06e4f2ed`
-   from `inference/patches/` (scheduler false-latch + LPM + HiCache hybrid-Mamba
+   from `inference/patches/` (scheduler false-latch + HiCache hybrid-Mamba
    patches); legacy variants: pull the old pinned image
    (digest, with a tag fallback) — and pulls the gateway image,
 3. downloads the model to `$MODELS_DIR`,
@@ -118,10 +118,6 @@ hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
 docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
   -t llm-infer:hicache-06e4f2ed inference/patches
-# legacy v0.5.19 build (kept to reproduce the pre-09-19 mainline):
-#   docker pull lmsysorg/sglang@sha256:d6e7288627be8b02be88e4bba38e73f6d50e2826869f753c13a4c4385ab3eda9
-#   docker build -f inference/patches/hicache-mamba-fix/img-d6e72886/Dockerfile \
-#     -t llm-infer:hicache-d6e72886 inference/patches
 # legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
 docker pull calciumion/new-api:v1.0.0-rc.36
@@ -234,8 +230,8 @@ its stash needing a 9th). The **E10 fix** (mainline since): `extra_buffer` (budg
 admission rejects and queues instead of over-committing) + pool **10** = upstream
 ratio 5 × mrr 2. Measured on the mainline: dual-stream peak uses 8/10, leaving exactly
 the 2-slot stash headroom. Regression gate:
-`inference/tools/acceptance/verify-mamba-stash.py` (evidence:
-`evidence/mamba-stash-T3-0915/`).
+`inference/tools/acceptance/verify-mamba-stash.py` (latest evidence:
+`evidence/mamba-stash-T3-0919/`).
 
 Consequence (unchanged): an offline "reward-model scoring" loop - 60-1300-token prompts,
 generation to a 700-token cap, ~30-50 req/min - needs 10-15 streams by Little's law and
@@ -246,38 +242,31 @@ Operational rule: run offline/batch workloads under their **own gateway token** 
 
 ### The scheduler false-latch patch
 
-Both pinned SGLang trees have the same false-latch bug (legacy `b91d664a` at
-`scheduler.py:3355`; v0.5.19 `d6e72886` at `scheduler.py:3661`; v0.5.20 `06e4f2ed` at `scheduler.py:3887`): a chunked-prefill
+Both pinned SGLang trees have the same false-latch bug (mainline v0.5.20
+`06e4f2ed` at `scheduler.py:3887`; the legacy `b91d664a` anchor is 3355 — older
+anchors live in git history): a chunked-prefill
 continuation (which already holds a request row and does not allocate a new one) is
 counted in `can_run`, so it is compared against a budget derived from free rows. This
 double-counts and sets `batch_is_full` early, capping effective concurrency at
 `mrr - 1`.
 
-The patch lives in `inference/patches/sched-latch-fix/`, organized one build per
-pinned image (`img-<digest>/`; see its README for the upgrade procedure). The mainline
-`kv-fp8-text-image` profile pins the **derived image `llm-infer:hicache-06e4f2ed`**
-(all-in-one build from `inference/patches/`, which also carries the HiCache hybrid-Mamba
-patches below): the scheduler patches are baked in via a `.pth` import — the v0.5.19
-base ships a system `sitecustomize.py` that silently shadows the old
-`PYTHONPATH=/patches` mount trick — they **self-verify their anchor at startup and fail
-loudly on drift**, and they include the LPM wait-boost companion, enabled by default in
-the profile (`--schedule-policy lpm` + `SGLANG_LPM_WAIT_BOOST_SECONDS=20` /
-`SGLANG_LPM_WAIT_BOOST_MAX=1`: a cold request waiting > 20 s jumps the LPM queue once —
-ordering only, adds no capacity; set the env to 0 to disable). The legacy profiles still
-pin `b91d664a` and load `img-b91d664a/sitecustomize.py` from the `/patches` mount
-(**matches on line number 3355 + function name** — after any image upgrade re-check the
-anchor or the hook silently no-ops; safe: it just falls back to `mrr - 1`).
+The patch lives in `inference/patches/sched-latch-fix/`, one build directory per
+pinned image (see its README for the re-anchor procedure). The mainline profile pins
+the **derived image `llm-infer:hicache-06e4f2ed`** (all-in-one build from
+`inference/patches/`, also carrying the HiCache hybrid-Mamba patches below): the
+scheduler patch is baked in via a `.pth` import — the base image ships a system
+`sitecustomize.py` that silently shadows the old `PYTHONPATH=/patches` mount trick —
+and it **self-verifies its anchor at startup and fails loudly on drift**. The legacy
+profiles still pin `b91d664a` and load `img-b91d664a/sitecustomize.py` from the
+`/patches` mount (matches on line number + function name — re-check the anchor after
+any image upgrade or the hook silently no-ops; safe: it just falls back to `mrr - 1`).
 
-Both builds share the suppression rule: only suppress the false latch when the real
-number of new admits in a pass is below the free rows at the start of the pass — so it
-never over-admits and is safe at any `mrr`.
-
-The latch needs an in-flight chunked prefill — a prompt longer than
-`chunked_prefill_size` (2048 legacy / 6144 mainline), split across passes. Only then can
-a second request that *arrives while that prefill is still running* be held until the
-first finishes prefill (a transient `mrr - 1`); the stall lasts as long as the prefill.
-Two requests arriving in the same scheduler pass both start, and any prompt <=
-`chunked_prefill_size` never chunks at all, so neither is affected.
+The suppression rule: only suppress the false latch when the real number of new
+admits in a pass is below the free rows at the start of the pass — so it never
+over-admits and is safe at any `mrr`. The bug needs an in-flight chunked prefill
+(prompt longer than `chunked_prefill_size`: 2048 legacy / 6144 mainline) plus a
+second request arriving mid-prefill; prompts at or below the chunk size never chunk
+and are unaffected.
 
 ### Context pool budget and the prefill CUDA graph
 
@@ -317,20 +306,21 @@ in **0.26 s** (8.76 s by full re-prefill before — 34x), branch re-admission dr
 
 ### The HiCache hybrid-Mamba fix
 
-Stock v0.5.19's HiCache did not actually reuse the host tier on this hybrid GDN (Mamba)
+Stock SGLang's HiCache did not actually reuse the host tier on this hybrid GDN (Mamba)
 model: chunked prefills were never backed up (chunked nodes were skipped by the
 per-operation hit counter), the mamba anchor pool was sized far below the upstream
 criterion `kv_pool_tokens * hicache_ratio / chunked_prefill_size` (~128 anchors needed at
-the old cps 2048; 10 device + 20 host slots configured), the host-hit counters were
-phantom (device-resident tokens were credited to the host tier), and a starved mamba
+the old cps 2048; 10 device + 20 host slots configured), and a starved mamba
 allocation could assert-crash the scheduler. The `inference/patches/hicache-mamba-fix/`
-build fixes all four (chunked write-through backport #36647; honest
-`loaded_host_hit_length` split #26976; skip-instead-of-assert on mamba exhaustion #36770;
-`SGLANG_HICACHE_MAMBA_SIZE_GB` host-pool knob) — see that directory's README for
-anchors, upstream status and the retirement table. Mainline runs `--chunked-prefill-size
+build fixes all three (chunked write-through backport #36647; skip-instead-of-assert on
+mamba exhaustion #36770; `SGLANG_HICACHE_MAMBA_SIZE_GB` host-pool knob). A fourth fix —
+honest host-hit accounting — was carried as a local patch on v0.5.19 and **retired on
+v0.5.20**, which absorbed it upstream (`host_loaded_length` /
+`materialized_host_hit_len()`); see that directory's README for anchors, upstream
+status and the retirement table. Mainline runs `--chunked-prefill-size
 6144` (8192 OOMs the pool) + `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` = ~88 host anchors,
 satisfying the criterion 262144/6144 ~ 43 <= 10 + 88. The regression gate
-`verify-hicache-thrash.py` now demands a real host load-back
+`verify-hicache-thrash.py` demands a real host load-back
 (`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer; the measurements
 and raw counters live in `evidence/hicache-mamba-fix-0917/`.
 
@@ -377,8 +367,8 @@ the only meaningful option.
   itself is upstream fail-loud design (still present on main); the mainline patch build
   additionally ships the upstream skip-instead-of-assert backport (#36770, counted via
   `radix_cache_aux_alloc_failed_total`). Regression gate:
-  `inference/tools/acceptance/verify-mamba-stash.py`, evidence in
-  `evidence/mamba-stash-T3-0915/` and `evidence/hicache-mamba-fix-0917/`.
+  `inference/tools/acceptance/verify-mamba-stash.py` (latest evidence:
+  `evidence/mamba-stash-T3-0919/`; the 09-15 A/B runs are in git history).
 - **`--mm-process-config` uses pixel *area*, not edge length.** `image.max_pixels` is
   ignored by this processor build; use `image.size.longest_edge` (2097152 = 2 Mpx area).
 - **Images need `--image-processor-backend pil`.** The GPU image processor resizes all
@@ -510,12 +500,12 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── Makefile  .env.example
 ├── inference/
 │   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
-│   │                               v0.5.19 tree, E10 + hicache fix: cps 6144, host mamba 7 GB)
+│   │                               v0.5.20 tree, hrrn, E10 + hicache fix: cps 6144, host mamba 7 GB)
 │   ├── kv-nvfp4-text-image.yml     legacy: NVFP4 KV + vision (32 GB, mrr 4, old pinned tree)
 │   ├── kv-fp8-text-only.yml        legacy: FP8 KV, text only, 4 streams (old pinned tree)
-│   ├── patches/sched-latch-fix/    scheduler patches (latch, LPM wait-boost)
-│   ├── patches/hicache-mamba-fix/  HiCache patches (write-through, honest metrics, host pool)
-│   └── tools/acceptance/           acceptance suites (T1/T2 scheduling, T3 mamba stash, T4 hicache)
+│   ├── patches/sched-latch-fix/    scheduler false-latch patch (one build per pinned image)
+│   ├── patches/hicache-mamba-fix/  HiCache patches (write-through, alloc degrade, host pool)
+│   └── tools/acceptance/           acceptance gates (T1 latch, T3 mamba stash, T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml
 │   └── opencode-config.md / opencode-config-zh.md
