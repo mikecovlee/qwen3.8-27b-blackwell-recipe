@@ -1,0 +1,109 @@
+# TEST profile — v0.5.20 base (digest 06e4f2ed) + HRRN observation.
+# NOT the production file. Purpose: evaluate upstream's new `--schedule-policy
+# hrrn` (aging-based; v0.5.20 release notes: mean TTFT -69% vs FCFS) as the
+# replacement for our local sched_lpm_waitfix, which is deliberately NOT baked
+# into llm-infer:hicache-06e4f2ed.
+#
+# Carried patches (see ../patches/): sched-latch-fix (anchor 3887) +
+# hicache-mamba-fix P1/P3/C (P2 retired — absorbed upstream as
+# host_loaded_length / materialized_host_hit_len).
+#
+# Sizing identical to production kv-fp8-text-image.yml (mrr 2, mamba pool 10,
+# cps 6144, host mamba 7.0 GB, mem-fraction 0.94, vision caps).
+#
+# Run (one GPU — production stack must be down):
+#   docker compose -f kv-fp8-text-image.yml down
+#   docker compose -f kv-fp8-text-image-v0520-hrrn.yml up -d
+# Acceptance (isolated naming via this file's container_name):
+#   python3 tools/acceptance/verify-mamba-stash.py
+#   python3 tools/acceptance/verify-hicache-thrash.py
+# Rollback:
+#   docker compose -f kv-fp8-text-image.yml up -d
+services:
+  sglang:
+    image: llm-infer:hicache-06e4f2ed
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # No SGLANG_LPM_WAIT_BOOST_* here: the waitfix module is not in this image.
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=7.0
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --attention-backend
+      - flashinfer
+      - --mem-fraction-static
+      - "0.94"
+      - --max-total-tokens
+      - "262144"
+      - --chunked-prefill-size
+      - "6144"
+      - --max-mamba-cache-size
+      - "${MAMBA_POOL:-10}"
+      - --mamba-radix-cache-strategy
+      - ${MAMBA_STRATEGY:-extra_buffer}
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "2"
+      - --cuda-graph-max-bs-decode
+      - "2"
+      - --disable-prefill-cuda-graph
+      # HRRN observation: aging-based admission ordering, upstream replacement
+      # for the LPM starvation gap our waitfix patched around.
+      - --schedule-policy
+      - hrrn
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+      - --mm-process-config
+      - '{"image": {"size": {"longest_edge": 2097152, "shortest_edge": 65536}}}'
+      - --image-processor-backend
+      - pil
+      - --limit-mm-data-per-request
+      - '{"image": 128, "video": 0}'
+
+volumes:
+  sglang-cache:
+    external: true
+    name: inference_sglang-cache
