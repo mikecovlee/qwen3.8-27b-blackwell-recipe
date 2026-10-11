@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acceptance: sched-latch patch on the mainline build (v0.5.20 line, hrrn).
+"""Acceptance: sched-latch patch on the mainline build (v0.5.21 line, hrrn).
 
 Verifies the baked false-latch patch live, on a real load — designed to be run
 against an ISOLATED test instance so production traffic never skews the timings.
@@ -16,7 +16,7 @@ Bring one up with a two-line compose override alongside your deployment file:
     python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
 
 T1 sched-latch-fix (false latch; anchor scheduler.py:3661 on d6e72886,
-scheduler.py:3887 on 06e4f2ed):
+scheduler.py:3887 on 06e4f2ed, scheduler.py:3976 on b1259f3e):
   A big cold prompt forces a long chunked prefill; a small request B is sent ~2.5s
   later. The bug latches batch_is_full until someone FINISHES, so the discriminator
   is NOT B's absolute TTFT — chunked prefill is inherently a single pipeline and B

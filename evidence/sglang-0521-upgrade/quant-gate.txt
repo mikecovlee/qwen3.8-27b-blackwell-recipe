@@ -1,0 +1,14 @@
+FP8 blockwise GEMM quant gate - tools/probe-bmm-fp8.py
+Run against a free GPU (server stopped), image llm-infer:hicache-b1259f3e:
+
+  docker run --rm --gpus all -v "$PWD:/w" llm-infer:hicache-b1259f3e \
+    python3 /w/probe-bmm-fp8.py
+
+  4 cases, each vs the cutlass reference:
+    M=2    K=5120 N=6144   rel_err=0.0000
+    M=512  K=5120 N=1024   rel_err=0.0000
+    M=2    K=6144 N=5120   rel_err=0.0000
+    M=512  K=6144 N=5120   rel_err=0.0000
+
+RESULT: PASS (exit 0) - FP8 kernels bit-for-bit vs cutlass.
+(Requires a free GPU: running it while the server holds the GPU OOMs.)

@@ -18,10 +18,10 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 - Concurrent streams with near-linear batch scaling and zero retractions: 2 by
   default (FP8 KV profile), 4 with the NVFP4 profile.
 - **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
-  mrr 2, prefill CUDA graph off; v0.5.20 tree + E10 mamba sizing); **NVFP4 KV +
-  vision** for 4 streams on 32 GB (legacy profile, old pinned tree; known occasional
+  mrr 2, prefill CUDA graph on, shape-capped; v0.5.21 tree, Rust radix core); **NVFP4 KV +
+  vision** for 4 streams on 32 GB (v0.5.21 tree; known occasional
   garbled-reasoning instability); **FP8 KV text-only** for high-concurrency (4 streams)
-  text-only serving (legacy profile).
+  text-only serving (v0.5.21 tree).
 - **Hierarchical KV cache** (host-RAM L2) with fast re-admission after eviction.
 - **Gateway**: per-user keys, 3-tier cache-aware pricing, automatic failover to a
   secondary upstream.
@@ -54,15 +54,16 @@ cards run the same images; pick a config variant by VRAM:
 
 Why FP8 KV is the 32 GB default now: the KV pool budget is
 `free − fraction slack − mm reservation − mamba pool`, and CUDA graphs are **not** in it
-(captured afterwards, out of the slack). Disabling the prefill CUDA graph (1.19 GB,
-measured 0–1% prefill impact) and rebalancing to mrr 2 makes FP8 KV + vision + the full
-262144 context fit in 32 GB with ~1.8 GB headroom — zero FP4 KV caveats, ~2x decode
-bandwidth per stream. The mamba pool is 10 on the mainline (E10 sizing = upstream
-ratio 5 × mrr, see [Mamba slot accounting](#mamba-slot-accounting-why-small-offline-requests-saturate-the-card-too));
+(captured afterwards, out of the slack). Keeping the prefill CUDA graph **on** — shape-capped
+via `--cuda-graph-max-bs-prefill` so its capture fits, with oversized prefill batches
+replaying eagerly — and rebalancing to mrr 2 makes FP8 KV + vision + the full
+262144 context fit in 32 GB with ~0.8 GB headroom — zero FP4 KV caveats, ~2x decode
+bandwidth per stream. The mamba pool is 10 on the mainline (upstream sizing = ratio
+5 × mrr, see [Mamba slot accounting](#mamba-slot-accounting-why-small-offline-requests-saturate-the-card-too));
 the KV pool is capped by `--max-total-tokens`, not by memory, so the +2 slots cost zero
 context. `kv-nvfp4-text-image` remains for those who need 4 streams on 32 GB (KV 8→5 GB,
 FP4 caveats apply); if you never send images and want 4 streams, `kv-fp8-text-only` is
-the long-running text-only high-concurrency profile. Both run on the legacy pinned tree.
+the long-running text-only high-concurrency profile. All three run on the v0.5.21 tree.
 
 ## Architecture
 
@@ -95,8 +96,8 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 
 `make online` runs `scripts/online/setup.sh`, which:
 1. checks docker / GPU / compose,
-2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.20
-   base by digest and **builds the patched derived image** `llm-infer:hicache-06e4f2ed`
+2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.21
+   base by digest and **builds the patched derived image** `llm-infer:hicache-b1259f3e`
    from `inference/patches/` (scheduler false-latch + HiCache hybrid-Mamba
    patches); legacy variants: pull the old pinned image
    (digest, with a tag fallback) — and pulls the gateway image,
@@ -114,13 +115,13 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# mainline (fp8v): pinned v0.5.20 base + baked scheduler + HiCache patches
-docker pull lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f
-docker build -f inference/patches/hicache-mamba-fix/img-06e4f2ed/Dockerfile \
-  -t llm-infer:hicache-06e4f2ed inference/patches
+# mainline (fp8v): pinned v0.5.21 base + baked scheduler + HiCache patches
+docker pull lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469
+docker build -f inference/patches/hicache-mamba-fix/img-b1259f3e/Dockerfile \
+  -t llm-infer:hicache-b1259f3e inference/patches
 # legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
 #   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
-docker pull calciumion/new-api:v1.0.0-rc.36
+docker pull calciumion/new-api:v1.0.0-rc.40
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
@@ -150,31 +151,31 @@ services and waits for health.
 Three self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.20 tree) | `kv-nvfp4-text-image.yml` (legacy, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (legacy, 32 GB, 4 streams) |
+| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.21 tree) | `kv-nvfp4-text-image.yml` (32 GB, 4 streams) | `kv-fp8-text-only.yml` (32 GB, 4 streams) |
 | --- | --- | --- | --- |
-| image (default) | `llm-infer:hicache-06e4f2ed` (derived; scheduler + HiCache patches baked in) | `lmsysorg/sglang@sha256:b91d664a…` (old pinned tree, `/patches` mount) | same as NVFP4 |
+| image (default) | `llm-infer:hicache-b1259f3e` (derived; scheduler + HiCache patches baked in) | `llm-infer:hicache-b1259f3e` (same, baked) | `llm-infer:hicache-b1259f3e` (same, baked) |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
-| attention backend | `--attention-backend flashinfer` | `--prefill-attention-backend flashinfer` + `--decode-attention-backend trtllm_mha` | `--attention-backend flashinfer` |
+| attention backend | `--attention-backend flashinfer` | `--prefill-kv-cache-dequant-dtype fp8_e4m3` (SM120: prefill flashinfer + decode trtllm_mha) | `--attention-backend flashinfer` |
 | vision | enabled | enabled | disabled (`language_model_only`) |
 | image flags | `--mm-process-config`, `--image-processor-backend pil`, guard `image:128` | same | none |
-| mrr / mamba pool / graph bs | **2 / 10 / 2** + `--disable-prefill-cuda-graph` | 4 / 16 / 4 | 4 / 16 / 4 |
-| `--chunked-prefill-size` | `6144` (HiCache anchor criterion, see Tuning) | 2048 (default) | 2048 (default) |
-| `SGLANG_HICACHE_MAMBA_SIZE_GB` | `7.0` (88 host mamba anchors) | unset | unset |
+| mrr / mamba pool / graph bs | **2 / 10 / 2** | 4 / 16 / 4 | 4 / 16 / 4 |
+| prefill CUDA graph | on, `--cuda-graph-max-bs-prefill 2048` | on, capped at 4096 (=cps) | on, `--cuda-graph-max-bs-prefill 3072` |
+| `--chunked-prefill-size` | `6144` (v0.5.21: 8192 OOMs the pool, see Tuning) | default (`4096`) | default (`4096`) |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
-| `--schedule-policy` | `hrrn` (upstream aging; waitfix retired 09-19) | default (`fcfs`) | default (`fcfs`) |
-| `--mem-fraction-static` | `0.94` | `0.90` | `0.92` |
-| `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | none |
-| free VRAM after load (32 GB) | ~1.78 GB | ~2.65 GB | ~0.58 GB |
+| `--schedule-policy` | `hrrn` (upstream aging; waitfix retired 09-19) | `hrrn` | `hrrn` |
+| `--mem-fraction-static` | `0.93` | `0.90` | `0.91` |
+| `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
+| free VRAM after load (32 GB) | ~0.77 GB | ~2.37 GB | ~0.97 GB |
 
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
-each), on the v0.5.20 tree with baked-in scheduler + HiCache patches. Pick **NVFP4 KV + vision**
-(legacy) only when you need 4 streams on the same card and accept its **occasional
+each), on the v0.5.21 tree with baked-in scheduler + HiCache patches. Pick **NVFP4 KV + vision**
+only when you need 4 streams on the same card and accept its **occasional
 garbled-reasoning instability** ([NVFP4 caveats](#nvfp4-caveats)) — or on a **24 GB**
 card, where its smaller KV footprint is the only meaningful option. Pick **FP8
-text-only** (legacy) if you never send images and want 4 streams. On 48 GB+, raise the
+text-only** if you never send images and want 4 streams. On 48 GB+, raise the
 mainline profile to mrr 4 / pool 20 / graph 4 (pool = 5 × mrr, see
-[Tuning](#tuning)) and re-enable the prefill graph (fraction back to 0.90-0.92), then
+[Tuning](#tuning)) and raise the prefill cap accordingly, then
 re-run `tools/concurrency-load.py soak`.
 
 ```bash
@@ -196,7 +197,7 @@ All of it was measured on the target card.
 `--max-running-requests` (mrr), `--max-mamba-cache-size` and `--cuda-graph-max-bs-decode`
 must move together:
 
-- The mamba state pool caps concurrency. Mainline (v0.5.20 tree, `extra_buffer` +
+- The mamba state pool caps concurrency. Mainline (v0.5.21 tree, `extra_buffer` +
   overlap schedule): upstream auto-sizes the pool at **5 × mrr** (ratio 5 = 3 base + 2
   for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The legacy profiles (old
   pinned tree, `extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
@@ -204,11 +205,12 @@ must move together:
 - The CUDA-graph decode batch size must cover mrr, or larger batches silently fall back
   to eager mode (~60% slower).
 - Default profiles: `kv-fp8-text-image` (mainline) runs `262144 / mrr 2 / pool 10 /
-  graph 2 / extra_buffer` (prefill graph disabled); the legacy NVFP4 and text-only
-  profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` on the old pinned tree.
+  graph 2 / extra_buffer` (prefill graph on, capped at 2048 tokens); the NVFP4 and
+  text-only profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` (prefill graph on,
+  capped at 4096 / 3072 tokens) on the same v0.5.21 tree.
 - On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
   graph 8, keeping graph ≥ mrr). The latch fix is validated at mrr 2 in production
-  (v0.5.19 line, 24 h+; re-verified on v0.5.20 by the 09-19 T1 gate) and at 4 streams on the legacy tree; re-run
+  (v0.5.19 line, 24 h+; re-verified on v0.5.21 by the T1 gate) and at 4 streams on the legacy tree; re-run
   `tools/concurrency-load.py` (`t1`, `soak`) before trusting higher values.
 
 ### Mamba slot accounting (why small offline requests saturate the card too)
@@ -219,19 +221,20 @@ holds 1 active + up to 2 checkpoints on its path (track interval 256, capped by
 per request (measured: two streams in flight on pool 8 => used 5 / evictable 2 /
 available 1).
 
-On the mainline (v0.5.19→v0.5.20) the unified radix cache adds one more consumer: the **first
+On the mainline (v0.5.19→v0.5.21) the unified radix cache adds one more consumer: the **first
 stash of a chunked-prefill request donates an extra slot** to the tree — peak per
 request = own + locked + 1 donated (upstream sizing formula, pinned by its unit test
 `test_mamba_donated_alloc_ratio.py`). Under `extra_buffer_lazy` the allocator budgets
 only 2 slots per request, so a tight pool hits `assert slot is not None` ("Can not alloc
 mamba cache") and takes the scheduler down — observed once in production (2026-09-15:
 two streams holding 6/8 slots, a 150K chunked prefill admitted on the 2 freed slots,
-its stash needing a 9th). The **E10 fix** (mainline since): `extra_buffer` (budgets 3,
-admission rejects and queues instead of over-committing) + pool **10** = upstream
-ratio 5 × mrr 2. Measured on the mainline: dual-stream peak uses 8/10, leaving exactly
-the 2-slot stash headroom. Regression gate:
-`inference/tools/acceptance/verify-mamba-stash.py` (latest evidence:
-`evidence/mamba-stash-T3-0919/`).
+its stash needing a 9th). The **E10 fix** (`extra_buffer` budgets 3, admission rejects
+and queues instead of over-committing) + pool **10** = upstream ratio 5 × mrr 2. Measured
+on the v0.5.19/20 line: dual-stream peak uses 8/10, leaving exactly the 2-slot stash
+headroom. v0.5.21 reworks this accounting and auto-sizes the host mamba pool; re-verified
+on v0.5.21 (T3 gate). Regression gate:
+`inference/tools/acceptance/verify-mamba-stash.py` (v0.5.21 evidence:
+`evidence/sglang-0521-upgrade/`; original: `evidence/mamba-stash-T3-0919/`).
 
 Consequence (unchanged): an offline "reward-model scoring" loop - 60-1300-token prompts,
 generation to a 700-token cap, ~30-50 req/min - needs 10-15 streams by Little's law and
@@ -242,8 +245,9 @@ Operational rule: run offline/batch workloads under their **own gateway token** 
 
 ### The scheduler false-latch patch
 
-Both pinned SGLang trees have the same false-latch bug (mainline v0.5.20
-`06e4f2ed` at `scheduler.py:3887`; the legacy `b91d664a` anchor is 3355 — older
+Both pinned SGLang trees have the same false-latch bug (mainline v0.5.21
+`b1259f3e` at `scheduler.py:3976`; earlier mainline anchors: 3887 on v0.5.20 `06e4f2ed`,
+3661 on v0.5.19; the legacy `b91d664a` anchor is 3355 — older
 anchors live in git history): a chunked-prefill
 continuation (which already holds a request row and does not allocate a new one) is
 counted in `can_run`, so it is compared against a budget derived from free rows. This
@@ -252,7 +256,7 @@ double-counts and sets `batch_is_full` early, capping effective concurrency at
 
 The patch lives in `inference/patches/sched-latch-fix/`, one build directory per
 pinned image (see its README for the re-anchor procedure). The mainline profile pins
-the **derived image `llm-infer:hicache-06e4f2ed`** (all-in-one build from
+the **derived image `llm-infer:hicache-b1259f3e`** (all-in-one build from
 `inference/patches/`, also carrying the HiCache hybrid-Mamba patches below): the
 scheduler patch is baked in via a `.pth` import — the base image ships a system
 `sitecustomize.py` that silently shadows the old `PYTHONPATH=/patches` mount trick —
@@ -274,17 +278,16 @@ The pool is profiled as
 `pool_bytes = free_after_weights - mem_fraction slack - mm reservation - mamba pool`,
 and **CUDA graph capture is not in that formula** - graphs are captured afterwards and
 spend the `slack`. So while the pool is pinned by `--max-total-tokens`,
-`--mem-fraction-static` moves slack around but not the pool (0.90 vs 0.92: identical);
-but when the *profiled* value is the constraint, fraction and graph cost move the pool
-directly. Measured 2026-09-11: FP8 KV + vision + mrr 2 profiled to 242337 tokens at
-fraction 0.90 with the prefill graph on; disabling that graph (1.19 GB; measured 0-1%
-prefill impact - chunked prefill is compute-bound, not launch-bound) plus
-fraction 0.94 recovered the full 262144 with ~1.9 GB runtime headroom (cold 166K prefill:
-87 s, zero retractions). E10 re-validation (2026-09-15, mamba pool 8→10 = +0.16 GB):
-the KV pool is **flag-capped, not memory-capped** — ~0.7 GB of static slack absorbs the
-extra slots, KV still allocates the full 262144, headroom after graph capture ~1.78 GB,
-cold 166K prefill re-measured at 87.1 s. The pool and cold-prefill headroom remain a
-1:1 trade (table below measured with NVFP4 KV / mrr 4, same shape):
+`--mem-fraction-static` moves slack around but not the pool; but when the *profiled*
+value is the constraint (as with the graph on), fraction and graph cost move the pool
+directly. On v0.5.21 the prefill CUDA graph is **on in all three profiles** and
+**shape-capped** per profile via `--cuda-graph-max-bs-prefill` (mainline 2048, NVFP4 4096,
+text-only 3072) so the capture fits inside the slack while the full 262144-token pool is
+preserved; prefill chunks larger than the cap replay eagerly (measured 2026-09-11: chunked
+prefill is compute-bound, not launch-bound). Measured headroom after capture: mainline
+`0.93` -> 262144 pool, graph 1.09 GB, ~0.78 GB free; text-only `0.91` -> graph 1.34 GB,
+~0.98 GB free; NVFP4 `0.90` -> graph 1.53 GB, ~2.37 GB free. The pool and cold-prefill
+headroom remain a 1:1 trade (table below measured with NVFP4 KV / mrr 4, same shape):
 
 | `max-total-tokens` | free VRAM | cold prefill | 4 concurrent |
 | --- | --- | --- | --- |
@@ -298,31 +301,44 @@ cold 166K prefill re-measured at 87.1 s. The pool and cold-prefill headroom rema
 turns a 190K-token re-admission from ~109 s into <1 s with no decode/TTFT regression.
 `ratio 2` uses ~17 GB of host RAM; raise it for a larger L2 at the cost of RAM.
 
-[2026-09-17] On this hybrid GDN (Mamba) model the host tier only actually served
+[2026-09-17, v0.5.19] On this hybrid GDN (Mamba) model the host tier only actually served
 requests after the `hicache-mamba-fix` patch build + `--chunked-prefill-size 6144` +
-`SGLANG_HICACHE_MAMBA_SIZE_GB=7.0`: an evicted 36.6K session now returns from host RAM
-in **0.26 s** (8.76 s by full re-prefill before — 34x), branch re-admission drops
-25.1 s -> 3.09 s, and 2x68.5K concurrent prefills run clean. See the next section.
+an explicit `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0`: an evicted 36.6K session returned from host RAM
+in **0.26 s** (8.76 s by full re-prefill before — 34x), branch re-admission dropped
+25.1 s -> 3.09 s, and 2x68.5K concurrent prefills ran clean. **On v0.5.21 the explicit
+knob is no longer needed** — see the next section.
 
 ### The HiCache hybrid-Mamba fix
 
-Stock SGLang's HiCache did not actually reuse the host tier on this hybrid GDN (Mamba)
-model: chunked prefills were never backed up (chunked nodes were skipped by the
-per-operation hit counter), the mamba anchor pool was sized far below the upstream
-criterion `kv_pool_tokens * hicache_ratio / chunked_prefill_size` (~128 anchors needed at
-the old cps 2048; 10 device + 20 host slots configured), and a starved mamba
-allocation could assert-crash the scheduler. The `inference/patches/hicache-mamba-fix/`
-build fixes all three (chunked write-through backport #36647; skip-instead-of-assert on
-mamba exhaustion #36770; `SGLANG_HICACHE_MAMBA_SIZE_GB` host-pool knob). A fourth fix —
-honest host-hit accounting — was carried as a local patch on v0.5.19 and **retired on
-v0.5.20**, which absorbed it upstream (`host_loaded_length` /
-`materialized_host_hit_len()`); see that directory's README for anchors, upstream
-status and the retirement table. Mainline runs `--chunked-prefill-size
-6144` (8192 OOMs the pool) + `SGLANG_HICACHE_MAMBA_SIZE_GB=7.0` = ~88 host anchors,
-satisfying the criterion 262144/6144 ~ 43 <= 10 + 88. The regression gate
-`verify-hicache-thrash.py` demands a real host load-back
-(`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer; the measurements
-and raw counters live in `evidence/hicache-mamba-fix-0917/`.
+Stock SGLang (v0.5.19) did not actually reuse the host tier on this hybrid GDN (Mamba)
+model: chunked prefills were never backed up, the mamba anchor pool was sized below the
+upstream criterion `kv_pool_tokens * hicache_ratio / chunked_prefill_size`, and a
+starved mamba allocation could assert-crash the scheduler. The
+`inference/patches/hicache-mamba-fix/` build carried three fixes for that tree (chunked
+write-through backport #36647; skip-instead-of-assert on mamba exhaustion #36770; the
+`SGLANG_HICACHE_MAMBA_SIZE_GB` host-pool knob), plus a fourth — honest host-hit
+accounting — retired on v0.5.20 (`host_loaded_length` / `materialized_host_hit_len()`).
+
+**On v0.5.21 most of this is absorbed upstream** (see that directory's README for the
+retirement table):
+- **P1 (chunked write-through backport #36647) — retired since v0.5.21.** v0.5.21 has a
+  first-class chunked-prefill stash + backup pipeline
+  (`scheduler.stash_chunked_request` → `maybe_cache_unfinished_req(chunked=True)` →
+  `cache_unfinished_req(chunked=True)` + `flush_pending_backups()`).
+- **C (`SGLANG_HICACHE_MAMBA_SIZE_GB` knob) — obsolete since v0.5.21.** v0.5.21 sizes the
+  host mamba pool from the HiCache ratio / host budget (`hicache_auto_size.py`); on this
+  box the auto pool (~20 host + 10 device slots) already passes the T4 gate, so the
+  explicit knob is dropped from the profile. The C code stays baked in the image but
+  dormant (env unset) as a zero-cost fallback.
+- **P3 (mamba exhaustion assert #36770) — still carried.** v0.5.21 still has the fatal
+  `assert slot is not None` at `unified_cache/components/mamba.py:509`, so the
+  skip-instead-of-assert backport is re-anchored to `img-b1259f3e`.
+
+Mainline runs `--chunked-prefill-size 6144` (8192 OOMs the pool) with no explicit
+mamba-GB env. The regression gate `verify-hicache-thrash.py` demands a real host load-back
+(`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer; v0.5.21 passes
+(v0.5.21 evidence in `evidence/sglang-0521-upgrade/`; original measurements in
+`evidence/hicache-mamba-fix-0917/`).
 
 ### NVFP4 caveats
 
@@ -500,7 +516,7 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── Makefile  .env.example
 ├── inference/
 │   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
-│   │                               v0.5.20 tree, hrrn, E10 + hicache fix: cps 6144, host mamba 7 GB)
+│   │                               v0.5.21 tree, hrrn, Rust radix core, scheduler + hicache fix: cps 6144)
 │   ├── kv-nvfp4-text-image.yml     legacy: NVFP4 KV + vision (32 GB, mrr 4, old pinned tree)
 │   ├── kv-fp8-text-only.yml        legacy: FP8 KV, text only, 4 streams (old pinned tree)
 │   ├── patches/sched-latch-fix/    scheduler false-latch patch (one build per pinned image)

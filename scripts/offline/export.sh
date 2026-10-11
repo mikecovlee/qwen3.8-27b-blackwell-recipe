@@ -9,12 +9,12 @@ cd "$ROOT"
 
 BUNDLE="${1:-bundle}"
 VARIANT="${VARIANT:-fp8v}"
-SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f"
-DERIVED_IMAGE="llm-infer:hicache-06e4f2ed"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469"
+DERIVED_IMAGE="llm-infer:hicache-b1259f3e"
 PATCH_DIR="inference/patches"
 SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
 SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
-NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.36}"
+NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.40}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
 
@@ -26,10 +26,10 @@ mkdir -p "$BUNDLE/images" "$BUNDLE/model"
 
 if [[ "$VARIANT" == "fp8v" ]]; then
   img="$DERIVED_IMAGE"
-  log "pulling SGLang base image (v0.5.19 line)"
+  log "pulling SGLang base image (v0.5.21 line)"
   docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
   log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-06e4f2ed/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
 else
   img="$SGLANG_DIGEST_LEGACY"
   log "pulling SGLang image (legacy ${VARIANT})"

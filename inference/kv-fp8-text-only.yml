@@ -8,27 +8,25 @@
 # otherwise prefer the default kv-fp8-text-image.yml.
 # Full parameter rationale: see the "Tuning" section of the README.
 #
-# [2026-09-17] Not yet migrated to the all-in-one v0.5.19 image + HiCache
-# host-tier fix (patches/hicache-mamba-fix/): this profile still runs the
-# legacy b91d664a mount build.  Revalidate the new image against this profile
-# (acceptance suites on a twin instance) before switching it.
+# IMAGE (v0.5.21): llm-infer:hicache-b1259f3e = v0.5.21 base (digest b1259f3e,
+# tree e00930c) with the sched-latch + HiCache patches baked in (see
+# inference/patches/).  This variant keeps 4 streams (mrr 4 / pool 16 / graph 4)
+# and the extra_buffer_lazy strategy; see README "Tuning".  Rebuild command:
+# README "The scheduler false-latch patch".
 services:
   sglang:
-    image: ${SGLANG_IMAGE:-lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376}
+    image: llm-infer:hicache-b1259f3e
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
     volumes:
       - ${MODELS_DIR:-$HOME/models}:/models:ro
       - sglang-cache:/root/.cache
-      # Fixes a scheduler false-latch in the pinned image (README "The scheduler
-      # false-latch patch").
-      - ./patches/sched-latch-fix/img-b91d664a:/patches:ro
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - MAX_JOBS=4
       - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/patches
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     shm_size: 8g
     restart: unless-stopped
     deploy:
@@ -49,7 +47,7 @@ services:
       - --kv-cache-dtype
       - fp8_e4m3
       - --mem-fraction-static
-      - "0.92"
+      - "0.91"
       - --max-total-tokens
       - "262144"
       - --attention-backend
@@ -68,6 +66,10 @@ services:
       - "4"
       - --cuda-graph-max-bs-decode
       - "4"
+      - --cuda-graph-max-bs-prefill
+      - "3072"
+      - --schedule-policy
+      - hrrn
       - --reasoning-parser
       - qwen3
       - --tool-call-parser

@@ -177,3 +177,14 @@ hicache thrash PASS(244K 冷 124 s → host 重载 35 s、`load_back` +136K →
 运营当日即接受 HRRN(验收全绿、早期生产行为干净):waitfix 模块与其 T2
 行为测试退役(git 历史保留),`06e4f2ed` + `hrrn` 自 2026-09-19 起为主线;
 原观察 profile 已并入 `kv-fp8-text-image.yml` 并删除。
+
+## SGLang v0.5.21 迁移
+
+将补丁构建重新锚定到 v0.5.21(`llm-infer:hicache-b1259f3e`,基座 digest `b1259f3e`,
+tree `e00930c`)。假闩锁锚点从 scheduler.py:3887 移至 3976(上游仍未修复)。两项退役:
+**P1**(v0.5.21 自带 chunked-prefill stash + `flush_pending_backups()`,且新默认的
+Rust 树核心没有 `node_by_id`)与 **C** host mamba 池旋钮(host mamba 池现由 HiCache
+ratio 定容;`SGLANG_HICACHE_MAMBA_SIZE_GB` 不再设置,补丁代码烘焙但仍休眠)。P3
+(`components/mamba.py:509` 仍为致命断言)继续携带。v0.5.21 的 unified radix cache
+默认跑在 **Rust 核心**上。出货 profile 的孪生验收(T1 闩锁 / T3 stash / T4 thrash)
+与 FP8 量化门禁全部 PASS。证据:[`sglang-0521-upgrade/`](sglang-0521-upgrade/)。

@@ -1,0 +1,17 @@
+[sched-latch-fix/b1259f3e] armed (waits for sglang.srt.managers.scheduler, then patches)
+[sched-latch-fix/b1259f3e] anchor verified: /sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py:3976
+[sched-latch-fix/b1259f3e] installed
+[sched-latch-fix/b1259f3e] armed (waits for sglang.srt.managers.scheduler, then patches)
+[sched-latch-fix/b1259f3e] armed (waits for sglang.srt.managers.scheduler, then patches)
+[sched-latch-fix/b1259f3e] armed (waits for sglang.srt.managers.scheduler, then patches)
+[sched-latch-fix/b1259f3e] anchor verified: /sgl-workspace/sglang/python/sglang/srt/managers/scheduler.py:3976
+[sched-latch-fix/b1259f3e] installed
+[2026-10-11 21:24:06] Mamba Cache is allocated. max_mamba_cache_size: 10, conv_state size: 0.03GB, ssm_state size: 0.77GB 
+[2026-10-11 21:24:09] Init Unified Radix Cache. Components: (<ComponentType.FULL: 0>, <ComponentType.MAMBA: 2>). Tree Core: RustUnifiedTreeCore
+[2026-10-11 21:24:09] Allocating kv hierarchical KV host pool: 524289 tokens, 17.18 GB host memory.
+[2026-10-11 21:24:18] Allocating 1.65 GB host memory for hierarchical Mamba cache (layout=page_first).
+[2026-10-11 21:24:19] Attached hybrid pool stack to UnifiedRadixCache: pools=KV + MAMBA, transfer_layer_id_max=64
+[2026-10-11 21:24:19] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=False hybrid_ssm=True hicache_attached=True streaming_wrapped=False
+[sched-latch-fix/b1259f3e] suppressed false latch #1 (new_admits=0 rows_free=1)
+[sched-latch-fix/b1259f3e] suppressed false latch #2 (new_admits=0 rows_free=1)
+[sched-latch-fix/b1259f3e] suppressed false latch #3 (new_admits=0 rows_free=1)

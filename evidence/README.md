@@ -190,3 +190,16 @@ behavior clean): the waitfix module and its T2 behavioral test are retired
 (git history preserves both), and `06e4f2ed` + `hrrn` is the mainline build
 from 2026-09-19; the observation profile was folded into
 `kv-fp8-text-image.yml` and deleted.
+
+## SGLang v0.5.21 migration
+
+Re-anchored the patch build onto v0.5.21 (`llm-infer:hicache-b1259f3e`, base digest
+`b1259f3e`, tree `e00930c`). The false-latch anchor moved scheduler.py:3887 → 3976 (still
+unfixed upstream). Two items were retired: **P1** (v0.5.21 ships a chunked-prefill stash +
+`flush_pending_backups()`, and the new default Rust tree core has no `node_by_id`) and the
+**C** host-mamba-pool knob (the host mamba pool is now sized from the HiCache ratio;
+`SGLANG_HICACHE_MAMBA_SIZE_GB` is unset and the patched code stays dormant). P3
+(`components/mamba.py:509` still fatal-asserts) is still carried. The v0.5.21 tree runs the
+unified radix cache on the **Rust core** by default. Twin acceptance on the shipped profile
+(T1 latch / T3 stash / T4 thrash) and the FP8 quant gate all PASS. Evidence:
+[`sglang-0521-upgrade/`](sglang-0521-upgrade/).

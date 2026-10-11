@@ -16,8 +16,8 @@ both patch families:
 
 ```
 cd inference/patches
-docker build -f hicache-mamba-fix/img-06e4f2ed/Dockerfile -t llm-infer:hicache-06e4f2ed .
-docker run --rm --network=none --entrypoint python3 llm-infer:hicache-06e4f2ed \
+docker build -f hicache-mamba-fix/img-b1259f3e/Dockerfile -t llm-infer:hicache-b1259f3e .
+docker run --rm --network=none --entrypoint python3 llm-infer:hicache-b1259f3e \
   -c "import sglang.srt.managers.scheduler"   # expects the sched-latch self-check
                                               # to log 'anchor verified' + 'installed'
 ```
@@ -44,6 +44,9 @@ tier, so every eviction paid a full re-prefill:
    `kv_pool_tokens / chunked_prefill_size ≤ device_mamba_slots + host_mamba_slots`
    (upstream #36935); `[C]` adds `SGLANG_HICACHE_MAMBA_SIZE_GB` to size the host
    pool directly. Default profile: `262144 / 6144 ≈ 43 ≤ 10 + 88`.
+   *(**Superseded on v0.5.21**: the reworked mamba accounting keeps the
+   ratio-derived host pool sufficient — T3/T4 pass without the C env — so `[C]`
+   is carried baked-but-dormant, not set by the profile.)*
 
 ## Patches (v0.5.19 build, against tree 0bcd822 — historical; the v0.5.20 build drops P2, see below)
 
@@ -97,10 +100,10 @@ to a newer tree. Procedure:
 
 | Hunk | Retire when |
 |---|---|
-| P1 | #36647 (or #39745) lands in the pinned release line |
+| P1 | **RETIRED since v0.5.21**: v0.5.21 (b1259f3e) absorbed it upstream — a first-class chunked-prefill stash + `flush_pending_backups()` backup pipeline supersedes our write-through hunk; the img-b1259f3e build carries no `unified_radix_cache.py` patch and T4 passes without it |
 | P2 | **RETIRED 2026-09-19**: v0.5.20 (06e4f2ed) absorbed it upstream as `Req.host_loaded_length` + `materialized_host_hit_len()`; the img-06e4f2ed build carries no P2 files |
-| P3 | #36770 lands (still open as of v0.5.20; assert re-confirmed at components/mamba.py:495 after upstream's mamba_component.py -> mamba.py rename) |
-| C | upstream grows an equivalent explicit host-mamba sizing knob (watch #38644) |
+| P3 | #36770 lands (still open as of v0.5.21; assert re-confirmed at components/mamba.py:509 on b1259f3e) |
+| C | **obsolete on v0.5.21**: the ratio-derived/auto-sized host mamba pool is sufficient (T3/T4 green without the env). Kept baked-but-dormant as a zero-cost fallback; re-check if auto-size behavior regresses (watch #38644) |
 | sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
 
 ## v0.5.20 build (img-06e4f2ed, tree 94602c9)
@@ -116,3 +119,16 @@ against a clean checkout (git apply --check) and baked as
 
 These are backports carried until the upstream PRs in the retirement table land;
 the img-06e4f2ed all-in-one is the supported production build.
+
+## v0.5.21 build (img-b1259f3e, tree e00930c)
+
+Re-anchored onto the v0.5.21 line: 4 files instead of 5 (P1 dropped as
+upstream-absorbed; the chunked-prefill stash + `flush_pending_backups()` pipeline
+supersedes our write-through hunk, confirmed by T4). P3 re-anchored at
+`components/mamba.py:509` (callers at 586/599/606); `[C]` carried but dormant (the
+profile no longer sets `SGLANG_HICACHE_MAMBA_SIZE_GB`). v0.5.21 defaults to the
+Rust unified-radix core (`SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=rust`), which our
+config uses — all gates pass under it. Exported patches under
+`img-b1259f3e/patches/`; baked as `llm-infer:hicache-b1259f3e` — the mainline
+build since v0.5.21 (`kv-fp8-text-image.yml`). Evidence:
+`evidence/sglang-0521-upgrade/`.
