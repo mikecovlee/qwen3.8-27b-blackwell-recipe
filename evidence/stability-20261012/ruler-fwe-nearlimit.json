@@ -1,0 +1,33 @@
+{
+  "n": 1,
+  "lengths": [
+    160000,
+    180000
+  ],
+  "results": [
+    {
+      "len": 160000,
+      "sample": 0,
+      "score": 0.0,
+      "ans": [
+        "onzvuj",
+        "lyreqd",
+        "qvzctg"
+      ],
+      "out": "",
+      "wall": 70.6
+    },
+    {
+      "len": 180000,
+      "sample": 0,
+      "score": 1.0,
+      "ans": [
+        "ehdiwd",
+        "vxfbsu",
+        "xzyvqv"
+      ],
+      "out": "\n1. **ehdiwd**\n2. **vxfbsu**\n3. **xzyvqv**",
+      "wall": 99.9
+    }
+  ]
+}

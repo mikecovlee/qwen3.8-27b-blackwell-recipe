@@ -1,0 +1,6 @@
+reps=12000 tok/req=120000 total=480000 codes=[200, 200, 200, 200] wall=29.4s health_after=200
+reps=16000 tok/req=160000 total=640000 codes=[500, 500, 500, 500] wall=33.7s health_after=ConnectionResetError(104, 'Connection reset by peer')
+  -> crash detected; waiting for restart... recovered in 73.0s
+reps=20000 tok/req=200000 total=800000 codes=[500, 500, 500, 500] wall=121.3s health_after=ConnectionResetError(104, 'Connection reset by peer')
+  -> crash detected; waiting for restart... recovered in 70.0s
+SWEEP2 DONE

@@ -1,0 +1,6 @@
+reps=4800 tok/req=48000 total=192000 codes=[200, 200, 200, 200] wall=0.4s health_after=200
+reps=5600 tok/req=56000 total=224000 codes=[200, 200, 200, 200] wall=0.5s health_after=200
+reps=6400 tok/req=64000 total=256000 codes=[200, 200, 200, 200] wall=0.5s health_after=200
+reps=7200 tok/req=72000 total=288000 codes=[200, 200, 200, 200] wall=0.5s health_after=200
+reps=8000 tok/req=80000 total=320000 codes=[200, 200, 200, 200] wall=0.6s health_after=200
+

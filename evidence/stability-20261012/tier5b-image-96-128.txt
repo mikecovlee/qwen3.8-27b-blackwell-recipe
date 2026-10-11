@@ -1,0 +1,3 @@
+image 1x2097152 = 2.10 Mpx
+base64 len 11.2 MB
+N= 96  fail  wall=   5.5s  gpu_peak=31622MiB  HTTP Error 400: Bad Request :: {"object":"error","message":"absolute aspect ratio must be smaller than 200, got 2097152.0","type":"BadRequestError","param":null,"code":400}

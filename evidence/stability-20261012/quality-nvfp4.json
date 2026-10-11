@@ -1,0 +1,149 @@
+{
+  "base": "http://localhost:8080",
+  "model": "qwen3.8-27b",
+  "short": {
+    "math_mul": {
+      "content": "7006852",
+      "usage": {
+        "prompt_tokens": 30,
+        "total_tokens": 38,
+        "completion_tokens": 8,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.22
+    },
+    "math_ratio": {
+      "content": "36",
+      "usage": {
+        "prompt_tokens": 37,
+        "total_tokens": 40,
+        "completion_tokens": 3,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.12
+    },
+    "squares": {
+      "content": "1, 4, 9, 16, 25, 36, 49, 64, 81, 100",
+      "usage": {
+        "prompt_tokens": 33,
+        "total_tokens": 70,
+        "completion_tokens": 37,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.91
+    },
+    "logic_age": {
+      "content": "10",
+      "usage": {
+        "prompt_tokens": 42,
+        "total_tokens": 45,
+        "completion_tokens": 3,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.11
+    },
+    "chicken_rabbit": {
+      "content": "23",
+      "usage": {
+        "prompt_tokens": 39,
+        "total_tokens": 42,
+        "completion_tokens": 3,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.11
+    },
+    "knowledge": {
+      "content": "8848",
+      "usage": {
+        "prompt_tokens": 28,
+        "total_tokens": 33,
+        "completion_tokens": 5,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.16
+    },
+    "translate": {
+      "content": "Artificial intelligence is changing the world.",
+      "usage": {
+        "prompt_tokens": 26,
+        "total_tokens": 35,
+        "completion_tokens": 9,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.25
+    },
+    "json_out": {
+      "content": "{\"name\":\"张三\",\"age\":30}",
+      "usage": {
+        "prompt_tokens": 39,
+        "total_tokens": 50,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.3
+    },
+    "code_prime": {
+      "content": "```python\ndef is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n        return True\n    if n % 2 == 0:\n        return False\n    for i in range(3, int(n**0.5) + 1, 2):\n        if n % i == 0:\n            return False\n    return True\n```",
+      "usage": {
+        "prompt_tokens": 32,
+        "total_tokens": 123,
+        "completion_tokens": 91,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 2.33
+    },
+    "reason_steps": {
+      "content": "4",
+      "usage": {
+        "prompt_tokens": 42,
+        "total_tokens": 44,
+        "completion_tokens": 2,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.09
+    },
+    "long_form": {
+      "content": "光合作用是绿色植物、藻类及某些细菌利用光能，将二氧化碳和水转化为有机物（如葡萄糖）并释放氧气的生物化学过程。这一过程主要发生在叶绿体中，分为光反应和暗反应两个阶段。光反应捕获光能产生ATP和NADPH，暗反应则利用这些能量固定碳元素。光合作用不仅为生物圈提供食物和能量基础，还维持大气中氧气与二氧化碳的平衡，对地球生态系统的稳定至关重要。",
+      "usage": {
+        "prompt_tokens": 27,
+        "total_tokens": 127,
+        "completion_tokens": 100,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 2.38
+    },
+    "instr_fmt": {
+      "content": "apple|banana|cherry",
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 41,
+        "completion_tokens": 7,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 0
+      },
+      "wall_s": 0.21
+    }
+  },
+  "needle": {
+    "content": "739128",
+    "usage": {
+      "prompt_tokens": 57646,
+      "total_tokens": 57653,
+      "completion_tokens": 7,
+      "prompt_tokens_details": null,
+      "reasoning_tokens": 0
+    },
+    "wall_s": 16.26
+  }
+}

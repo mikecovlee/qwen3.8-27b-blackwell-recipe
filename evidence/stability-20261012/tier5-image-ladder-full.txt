@@ -1,0 +1,12 @@
+image 2048x1024 = 2.10 Mpx
+base64 len 8.4 MB
+N=  1  ok  wall=   2.5s  gpu_peak=30434MiB  
+N=  4  ok  wall=   3.7s  gpu_peak=30514MiB  
+N=  8  ok  wall=   5.6s  gpu_peak=30514MiB  
+N= 16  ok  wall=   9.7s  gpu_peak=30514MiB  
+N= 24  ok  wall=  12.2s  gpu_peak=30516MiB  
+N= 32  ok  wall=  15.0s  gpu_peak=30516MiB  
+N= 40  ok  wall=  16.8s  gpu_peak=30558MiB  
+N= 64  ok  wall=  45.7s  gpu_peak=30920MiB  
+N= 96  ok  wall=  78.1s  gpu_peak=31380MiB  
+N=128  fail  wall=  26.9s  gpu_peak=31380MiB  HTTP Error 400: Bad Request :: {"object":"error","message":"The input (262460 tokens) is longer than the model's context length (262144 tokens).","type":"BadRequestError","param":null,"code":400}

@@ -1,0 +1,7 @@
+A(244400c) cold prefill TTFT=126s
+B TTFT=34s  C TTFT=34s
+load_back kv: 191488 -> 326784 (+135296)
+D = A 的续传 TTFT=0.4s
+tier 证据: [2026-10-12 00:36:18] Prefill batch, #new-seq: 1, #new-token: 62, #cached-token: 204928, full token usage: 0.78, mamba usage: 0.19, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda gr
+retract=0 assert/exception=0
+RESULT: PASS — host 层秒级重载, load_back kv 增量>0, 零 retraction/异常

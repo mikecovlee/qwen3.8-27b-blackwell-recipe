@@ -1,0 +1,33 @@
+{
+  "n": 1,
+  "lengths": [
+    32768,
+    240000
+  ],
+  "results": [
+    {
+      "len": 32768,
+      "sample": 0,
+      "score": 1.0,
+      "ans": [
+        "edkbwo",
+        "pzrhcf",
+        "zeabxf"
+      ],
+      "out": "\n\n**edkbwo**, **pzrhcf**, **zeabxf**\n\n(Note: \"edkbwo\" appears most frequently, followed by \"pzrhcf\", and then \"zeabxf\".)\n\nHere is the breakdown of the top 3:\n1.  **edkbwo**\n",
+      "wall": 9.0
+    },
+    {
+      "len": 240000,
+      "sample": 0,
+      "score": 0.0,
+      "ans": [
+        "zokjam",
+        "mjdzli",
+        "mljgan"
+      ],
+      "out": "",
+      "wall": 165.9
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "depth": 0.9,
+  "n": 1,
+  "results": [
+    {
+      "len": 32768,
+      "sample": 0,
+      "hit": true,
+      "val": "6996815",
+      "out": " 6996815.",
+      "wall": 9.9
+    },
+    {
+      "len": 65536,
+      "sample": 0,
+      "hit": true,
+      "val": "8542488",
+      "out": " 8542488.",
+      "wall": 19.5
+    },
+    {
+      "len": 131072,
+      "sample": 0,
+      "hit": true,
+      "val": "8549978",
+      "out": " 8549978.",
+      "wall": 75.0
+    },
+    {
+      "len": 240000,
+      "sample": 0,
+      "hit": false,
+      "err": "HTTP Error 400: Bad Request",
+      "wall": 0.3
+    }
+  ]
+}

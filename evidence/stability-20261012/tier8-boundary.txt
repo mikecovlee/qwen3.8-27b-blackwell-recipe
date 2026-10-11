@@ -1,0 +1,20 @@
+== T8a malformed JSON body ==
+ status 400 b'{"object":"error","message":"1 validation error:\\n  {\'type\': \'json_invalid\', \'loc\': (\'body\', 1), \'msg\': \'JSON decode error\', \'input\': {}, \'ctx\': {\'error\': \'unexpected character, expected a string key\'}}\\n\\n  File \\"/sgl-workspace/sglang/python/sglang/srt/entrypoints/http_server.py\\", line 1769, in o'
+ health 200
+== T8b unknown model ==
+ status 200 b'{"id":"cf66c86805d14640b6d582e33e150bc9","object":"text_completion","created":1791740337,"model":"nonexistent-model","choices":[{"index":0,"text":" you are tikt","logprobs":null,"finish_reason":"lengt'
+== T8c missing prompt ==
+ status 400 b'{"object":"error","message":"1 validation error:\\n  {\'type\': \'missing\', \'loc\': (\'body\', \'prompt\'), \'msg\': \'Field required\', \'input\': {\'model\': \'qwen3.8-27b\', \'max_tokens\': 4}}\\n\\n  File \\"/sgl-workspa'
+== T8d abort mid-stream (5x) ==
+ abort#1 got 200B first_len=True
+ abort#2 got 200B first_len=True
+ abort#3 got 200B first_len=True
+ abort#4 got 200B first_len=True
+ abort#5 got 200B first_len=True
+ health after aborts 200
+== T8e streaming normal (sanity) ==
+ status 200 b'{"id":"3d877d6617c04002b48161b91f3cb123","object":"text_completion","created":1791740343,"model":"qwen3.8-27b","choices"'
+== T8f 4x64K concurrent (VRAM/pool extreme) ==
+ 4x64K wall 168.5 {0: (500, 168.5), 3: (500, 168.4), 2: (500, 168.4), 1: (500, 168.5)}
+ health ERR [Errno 104] Connection reset by peer
+== final health ERR [Errno 104] Connection reset by peer

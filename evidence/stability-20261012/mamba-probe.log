@@ -1,0 +1,96 @@
+outdir: evidence/stability-20261012/mamba-probe
+[ramp] run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75 workers=10
+[ramp done] ok= True run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t1 pt=2418 cached=None ct=114 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 15s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t2 pt=2445 cached=2368 ct=105 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 30s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 45s run=3.0 q=9.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[V2-short] t3 pt=2476 cached=2432 ct=52 fr=stop run=3.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 60s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 75s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t4 pt=2502 cached=2432 ct=44 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 90s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t5 pt=2528 cached=2496 ct=85 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 105s run=3.0 q=9.0 used=14.0 evict=1.0 avail=1.0 mamba_usage=0.875 kv=0.88
+[V1-long] t1 pt=26329 cached=None ct=116 fr=stop run=4.0 q=9.0 used=11.0 evict=4.0 avail=1.0 mamba_usage=0.6875 kv=0.69
+[V1b-branch] t1 pt=26329 cached=26304 ct=264 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[V2-short] t6 pt=2557 cached=2496 ct=186 fr=stop run=4.0 q=7.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 120s run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 135s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t7 pt=2588 cached=None ct=53 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t2 pt=26356 cached=26304 ct=246 fr=stop run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 150s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t8 pt=2589 cached=2368 ct=70 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t2 pt=26396 cached=26304 ct=196 fr=stop run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 165s run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t3 pt=26387 cached=26304 ct=45 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[V2-short] t9 pt=2589 cached=2368 ct=179 fr=stop run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 180s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 195s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t10 pt=2591 cached=2368 ct=163 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t4 pt=26413 cached=26368 ct=73 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 210s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t11 pt=2593 cached=2368 ct=54 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t3 pt=26437 cached=26304 ct=45 fr=stop run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 225s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t5 pt=26439 cached=26368 ct=30 fr=stop run=3.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t12 pt=2558 cached=2368 ct=73 fr=stop run=3.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 240s run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 255s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t4 pt=26463 cached=26432 ct=45 fr=stop run=3.0 q=8.0 used=9.0 evict=6.0 avail=1.0 mamba_usage=0.5625 kv=0.56
+[watch] 270s run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[V1-long] t6 pt=26468 cached=26432 ct=400 fr=length run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 285s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t5 pt=26489 cached=26432 ct=45 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 300s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 315s run=2.0 q=10.0 used=10.0 evict=4.0 avail=2.0 mamba_usage=0.625 kv=0.62
+[V1-long] t7 pt=26477 cached=None ct=7 fr=stop run=2.0 q=9.0 used=13.0 evict=1.0 avail=2.0 mamba_usage=0.8125 kv=0.81
+[V1b-branch] t6 pt=26518 cached=26432 ct=99 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 330s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 345s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t8 pt=26478 cached=26304 ct=124 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t7 pt=26507 cached=26304 ct=54 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 360s run=3.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 375s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 390s run=3.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 405s run=3.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 420s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 435s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 450s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t9 pt=26478 cached=None ct=92 fr=stop run=4.0 q=9.0 used=12.0 evict=2.0 avail=2.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t8 pt=26499 cached=26304 ct=55 fr=stop run=4.0 q=8.0 used=12.0 evict=2.0 avail=2.0 mamba_usage=0.75 kv=0.75
+[watch] 465s run=4.0 q=7.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 480s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t9 pt=26499 cached=26304 ct=116 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t10 pt=26480 cached=26304 ct=154 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 495s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 510s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 525s run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t11 pt=26482 cached=26304 ct=59 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t10 pt=26501 cached=26304 ct=166 fr=stop run=4.0 q=8.0 used=12.0 evict=3.0 avail=1.0 mamba_usage=0.75 kv=0.75
+[watch] 540s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 555s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t12 pt=26469 cached=26304 ct=80 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 570s run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t11 pt=26503 cached=26304 ct=77 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 585s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1-long] t13 pt=26466 cached=26304 ct=89 fr=stop run=4.0 q=9.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V1b-branch] t12 pt=26470 cached=26304 ct=77 fr=stop run=4.0 q=8.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 600s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 615s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 630s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 645s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 660s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 675s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 690s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 705s run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[V2-short] t13 pt=2555 cached=None ct=52 fr=stop run=4.0 q=7.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 720s run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+[watch] 735s run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+exposure=740s ramp_ok=True
+V1 turns=13 garble=0
+V1b turns=12 garble=0
+V2 turns=13 garble=0
+final run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75
+

@@ -1,0 +1,10 @@
+=== T1: 4×48K mx2048 (并发4) ===
+[T1] s0: prompt=47770 gen=2048 ttft=13.1s decode=21.0 tok/s
+[T1] s1: prompt=47768 gen=2048 ttft=25.9s decode=24.1 tok/s
+[T1] s2: prompt=47769 gen=2048 ttft=38.7s decode=28.4 tok/s
+[T1] s3: prompt=47773 gen=2048 ttft=50.3s decode=33.8 tok/s
+[T1] SUMMARY: n_ok=4/4 wall=110.8s gen_sum=8192 decode_tps_sum~107.3 | ENGINE peak_running=4 peak_queue=3 retract=0 assert=0 fatal=0
+[T1] BS-MED bs=2 med=75.2 n=1 eager=0
+[T1] BS-MED bs=4 med=135.2 n=51 eager=0
+GATE-T1-valid: PASS (bs4 graph decode lines=51 eager=0 med=135.2)
+GATE-T1-bs2vs4-intratest: PASS (bs4/bs2 med = 135.2/75.2 = x1.80)

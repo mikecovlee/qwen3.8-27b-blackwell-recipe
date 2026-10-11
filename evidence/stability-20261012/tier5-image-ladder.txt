@@ -1,0 +1,10 @@
+image 2048x1024 = 2.10 Mpx
+base64 len 8.4 MB
+N=  1  ok  wall=   6.0s  gpu_peak=31620MiB  
+N=  4  ok  wall=  17.2s  gpu_peak=31620MiB  
+N=  8  ok  wall=  16.0s  gpu_peak=31620MiB  
+N= 16  ok  wall=  36.5s  gpu_peak=31620MiB  
+N= 24  ok  wall=  40.9s  gpu_peak=31620MiB  
+N= 32  ok  wall=  51.5s  gpu_peak=31620MiB  
+N= 40  ok  wall=  50.9s  gpu_peak=31622MiB  
+N= 64  ok  wall= 149.3s  gpu_peak=31622MiB  

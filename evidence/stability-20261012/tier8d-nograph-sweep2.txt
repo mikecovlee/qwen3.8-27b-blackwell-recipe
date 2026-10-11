@@ -1,0 +1,7 @@
+reps=12000 tok/req=120000 total=480000 codes=[500, 500, 500, 500] wall=53.3s health_after=RemoteDisconnected('Remote end closed connection without response')
+  -> crash detected; waiting for restart... recovered in 46.2s
+reps=16000 tok/req=160000 total=640000 codes=[500, 500, 500, 500] wall=85.6s health_after=RemoteDisconnected('Remote end closed connection without response')
+  -> crash detected; waiting for restart... recovered in 46.0s
+reps=20000 tok/req=200000 total=800000 codes=[500, 500, 500, 500] wall=120.9s health_after=ConnectionResetError(104, 'Connection reset by peer')
+  -> crash detected; waiting for restart... recovered in 46.1s
+SWEEP2 DONE
