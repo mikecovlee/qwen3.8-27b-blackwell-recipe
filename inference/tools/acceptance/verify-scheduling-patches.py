@@ -42,6 +42,9 @@ import urllib.request
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://127.0.0.1:8080/generate")
 ap.add_argument("--container", default="llm-infer")
+# A costs ~26 tokens per rep, so the 9400 default needs a 262144-token pool;
+# lower it for profiles whose pool is smaller.
+ap.add_argument("--a-reps", type=int, default=9400)
 ARGS = ap.parse_args()
 
 T0 = time.time()
@@ -88,7 +91,7 @@ c0 = patch_counts()
 
 # ---------------- T1: false latch ----------------
 o1 = {}
-thA = threading.Thread(target=fire, args=(o1, "A", ("闩锁复验冷料" + str(SALT) + "。") * 9400, 1024))
+thA = threading.Thread(target=fire, args=(o1, "A", ("闩锁复验冷料" + str(SALT) + "。") * ARGS.a_reps, 1024))
 thA.start()
 fire(o1, "B", "请小结", 8, delay=2.5)
 thA.join(900)

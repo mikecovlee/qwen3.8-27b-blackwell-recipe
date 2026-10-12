@@ -1,0 +1,156 @@
+# SGLang inference server — FP8 KV + vision + NEXTN/MTP SPECULATIVE DECODING.
+# EXPERIMENTAL: trades context for decode speed.  Use kv-fp8-text-image.yml (the
+# default) unless short-answer decode throughput matters more than the full
+# 262144-token context.
+#
+# MEASURED ON 32 GB (RTX PRO 4500, v0.5.21 line):
+#   decode 42.3 -> 61.8-62.6 tok/s (1.47x) at ~1K context; 48.9 @64K; 43.0 @128K
+#   accept length 1.73-1.93 of a max 2 (--speculative-num-draft-tokens 2)
+#   prefill @4K unchanged (5611 vs 5489 tok/s); @2K regresses 31% (TTFT 0.37 ->
+#     0.54 s) — draft extend is a fixed per-chunk cost, so short prompts pay most
+#   context 262144 -> 204519 (78%); longer inputs are rejected with HTTP 400
+#   mem-fraction 0.92 leaves 1.79 GB headroom.  0.94 yields 223678 tokens but only
+#     1.18 GB, which OOM-crashed the scheduler under verify-mamba-stash.
+#   T3 mamba stash PASS, 0 restarts.  T1/T4 assume a 262144 pool, so scale their
+#     prompts here: verify-scheduling-patches.py --a-reps, verify-hicache-thrash.py
+#     --a-chars.
+# Everything else (mrr 2, mamba pool 10 extra_buffer, prefill graph OFF, mixed
+# chunk ON, hrrn, HiCache ratio 2, vision limits) is inherited from the default.
+#
+# IMAGE: llm-infer:spec-b1259f3e = llm-infer:hicache-b1259f3e (v0.5.21 base
+# digest b1259f3e, tree e00930c, + sched_latch_fix + hicache P3) with ONE more
+# patch baked, from inference/patches/spec-draft-share/:
+#   draft-share — share the target's embed_tokens + lm_head with the MTP draft
+#     BEFORE the KV pool is profiled.  Stock v0.5.21 allocates the draft's own
+#     bf16 copies (2 x 2.54 GB at vocab 248320), sizes the pool against that
+#     footprint, and frees them only later in alloc_memory_pool() — leaving 5.24 GB
+#     idle and the pool at 97068 tokens.  Patched: 223678 @0.94 / 204519 @0.92.
+#     Inert without --speculative-algorithm, so the other profiles are unaffected.
+# Rebuild (context = patches/):
+#   docker build -f spec-draft-share/img-b1259f3e/Dockerfile \
+#     -t llm-infer:spec-b1259f3e .
+# NEXTN resolves to EAGLE internally, which supports mixed chunk, so
+# --enable-mixed-chunk stays on.  The draft is the checkpoint's own 1-layer MTP
+# module (mtp.* tensors, left unquantized by the modelopt recipe).
+# --speculative-draft-model-path must point at the model dir: upstream's
+# in-checkpoint-draft whitelist does not include Qwen3_5ForConditionalGeneration.
+services:
+  sglang:
+    image: llm-infer:spec-b1259f3e
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      # Reduce fragmentation pressure under the tight runtime headroom.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --attention-backend
+      - flashinfer
+      - --mem-fraction-static
+      - "0.92"
+      - --max-total-tokens
+      - "262144"
+      # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
+      # count (kv_pool/cps).  v0.5.21's reworked mamba accounting keeps 6144
+      # safe (T3/T4 validated on v0.5.21); 8192 OOMs this profile (32 GB).
+      - --chunked-prefill-size
+      - "6144"
+      # Mixed chunk: let running decode requests ride inside a chunked prefill
+      # batch.  Without it one long prefill freezes every concurrent decode for
+      # its whole duration (measured: a single 9.5 s inter-token gap on a
+      # 512-token stream during a 40K-token prefill; wall 12.1 s -> 22.0 s).
+      # It only trims the prefill token budget by the mixed decode tokens; row
+      # and quota accounting are unchanged, so the sched-latch anchor is
+      # unaffected (T1 re-verified with this flag on).
+      - --enable-mixed-chunk
+      - --speculative-algorithm
+      - NEXTN
+      - --speculative-draft-model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}
+      - --speculative-num-steps
+      - "1"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "2"
+      - --speculative-draft-kv-cache-dtype
+      - fp8_e4m3
+      - --max-mamba-cache-size
+      - "${MAMBA_POOL:-10}"
+      - --mamba-radix-cache-strategy
+      - ${MAMBA_STRATEGY:-extra_buffer}
+      - --mamba-ssm-dtype
+      - bfloat16
+      # Zero-cost safety cap on cached mamba states per radix path.
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "2"
+      - --cuda-graph-max-bs-decode
+      - "2"
+      # Prefill CUDA graph OFF: the captured shapes cost ~1.1-1.6 GB, which does
+      # not fit FP8 KV + vision + full 262144 on 32 GB once the HiCache
+      # host<->device thrash needs its headroom — with the graph on, T4
+      # hicache-thrash OOMs (measured on v0.5.21: only ~0.78 GB left -> CUDA OOM).
+      # Prefill-latency cost of disabling it is ~0-1% (README "Tuning").
+      - --disable-prefill-cuda-graph
+      # HRRN admission ordering (upstream aging-based policy; mainline since
+      # 2026-09-19, replacing lpm + the retired sched_lpm_waitfix).
+      - --schedule-policy
+      - hrrn
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      # Required for the gateway's cache-hit pricing tier.
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+      # Vision: cap images at 2 Mpx (area) and preprocess on CPU.  Count guard 128 sits
+      # just past the natural ceiling: each 2 Mpx image is ~2050 tokens, so ~127 images
+      # already exhaust the 262144 context (the server rejects with 400 long before any
+      # VRAM issue — GPU peak is flat from 4 to 96 images).  The guard exists ONLY
+      # because it fires before preprocessing; the context check fires after.
+      - --mm-process-config
+      - '{"image": {"size": {"longest_edge": 2097152, "shortest_edge": 65536}}}'
+      - --image-processor-backend
+      - pil
+      - --limit-mm-data-per-request
+      - '{"image": 128, "video": 0}'
+
+volumes:
+  sglang-cache:

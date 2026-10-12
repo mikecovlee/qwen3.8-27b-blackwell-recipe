@@ -32,7 +32,7 @@ import difflib, json, subprocess, sys
 
 env = sys.argv[1]
 files = ["inference/kv-nvfp4-text-image.yml", "inference/kv-fp8-text-only.yml",
-         "inference/kv-fp8-text-image.yml"]
+         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-spec.yml"]
 
 def command(path):
     out = subprocess.run(
@@ -45,7 +45,10 @@ DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-a
         "--prefill-kv-cache-dequant-dtype", "--cuda-graph-max-bs-prefill",
         "--attention-backend", "--mm-process-config",
         "--image-processor-backend", "--limit-mm-data-per-request",
-        "--schedule-policy", "--chunked-prefill-size"}
+        "--schedule-policy", "--chunked-prefill-size",
+        "--speculative-algorithm", "--speculative-draft-model-path", "--speculative-num-steps",
+        "--speculative-eagle-topk", "--speculative-num-draft-tokens",
+        "--speculative-draft-kv-cache-dtype"}
 # Boolean flags that exist in only one variant (no value to consume).
 DROP_BOOL = {"--disable-prefill-cuda-graph", "--enable-mixed-chunk"}
 # Flags shared but intentionally different between variants (normalize the value).

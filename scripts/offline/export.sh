@@ -11,9 +11,8 @@ BUNDLE="${1:-bundle}"
 VARIANT="${VARIANT:-fp8v}"
 SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469"
 DERIVED_IMAGE="llm-infer:hicache-b1259f3e"
+SPEC_IMAGE="llm-infer:spec-b1259f3e"
 PATCH_DIR="inference/patches"
-SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
-SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
 NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.40}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
@@ -24,20 +23,15 @@ die() { printf '\033[1;31m[export] error:\033[0m %s\n' "$*" >&2; exit 1; }
 [[ -d "${MODELS_DIR}/${MODEL_DIR_NAME}" ]] || die "model not found: ${MODELS_DIR}/${MODEL_DIR_NAME}"
 mkdir -p "$BUNDLE/images" "$BUNDLE/model"
 
-if [[ "$VARIANT" == "fp8v" ]]; then
-  img="$DERIVED_IMAGE"
-  log "pulling SGLang base image (v0.5.21 line)"
-  docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
-  log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
-else
-  img="$SGLANG_DIGEST_LEGACY"
-  log "pulling SGLang image (legacy ${VARIANT})"
-  if ! docker pull "$img"; then
-    img="$SGLANG_TAG_LEGACY"
-    log "digest unavailable, using tag ${SGLANG_TAG_LEGACY}"
-    docker pull "$img"
-  fi
+img="$DERIVED_IMAGE"
+log "pulling SGLang base image (v0.5.21 line)"
+docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
+log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
+docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+if [[ "$VARIANT" == "fp8vspec" ]]; then
+  img="$SPEC_IMAGE"
+  log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
+  docker build -f "${PATCH_DIR}/spec-draft-share/img-b1259f3e/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"
 fi
 echo "$VARIANT" > "$BUNDLE/VARIANT"
 log "pulling gateway image"
