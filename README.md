@@ -170,6 +170,13 @@ except the ones below (`make check` enforces this):
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
 | free VRAM after load (32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
+A fourth profile is **opt-in and experimental**: `kv-fp8-text-image-200k-mtp.yml`
+(VARIANT `fp8vmtp`, image `llm-infer:spec-b1259f3e`). It is the mainline plus
+NEXTN/MTP speculative decoding, trading context for decode speed: the pool is pinned
+to **204800** tokens (78% of 262144) at `--mem-fraction-static 0.93` with 1.79 GB
+headroom, and decode goes **42.3 → 61.8-62.6 tok/s (1.47×)**. Everything else (mrr 2,
+mamba pool 10, prefill graph off, mixed chunk on, hrrn, HiCache, vision) is inherited.
+
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
 each), on the v0.5.21 tree with baked-in scheduler + HiCache patches. The
@@ -326,6 +333,40 @@ only trims the prefill token budget (`rem_input_tokens` / `rem_chunk_tokens` /
 unchanged. Upstream forbids mixed chunk only together with speculative decoding
 (`arg_groups/validation_hook.py`), which this stack does not use, and `Mamba2AttnBackend`
 explicitly supports mixed prefill + decode.
+
+### Speculative decoding: the MTP draft
+
+`kv-fp8-text-image-200k-mtp.yml` runs NEXTN, which SGLang resolves internally to
+EAGLE with the checkpoint's own one-layer MTP module as the draft.
+`--speculative-draft-model-path` must point at the model dir: upstream's
+in-checkpoint-draft whitelist does not include `Qwen3_5ForConditionalGeneration`.
+
+| | mainline | + MTP draft |
+|---|---|---|
+| context pool | 262144 | **204800** (pinned by `--max-total-tokens`) |
+| headroom | 1.75 GB | 1.79 GB |
+| decode @~1K | 42.3 tok/s | **61.8-62.6 tok/s (1.47×)** |
+| decode @64K / @128K | — | 48.9 / 43.0 tok/s |
+| prefill @4K | 5489 tok/s | 5611 tok/s (unchanged) |
+| prefill @2K TTFT | 0.37 s | 0.54 s (−31%) |
+
+Accept length is 1.73-1.93 of a max 2 (`--speculative-num-draft-tokens 2`). The gain
+shrinks as context grows (KV reads start to dominate) and short prompts pay the
+draft-extend pass on every chunk, so this profile suits short-answer decode-bound
+work rather than long-context retrieval. Inputs over ~204K tokens are rejected with
+HTTP 400.
+
+The `spec-draft-share` patch is what makes it usable at all. Stock v0.5.21 allocates
+the draft's own bf16 `embed_tokens` + `lm_head` (2 × 2.54 GB at vocab 248320),
+profiles the KV pool against that footprint, and only then shares the target's copies
+in `EagleDraftWorker.alloc_memory_pool()` — leaving 5.24 GB idle and the pool at 97068
+tokens. The patch moves that sharing to the end of `__init__` for single-stage runs and
+is inert without `--speculative-algorithm`. See `inference/patches/spec-draft-share/`.
+
+`--enable-mixed-chunk` stays on (EAGLE is in upstream's `supports_mixed_chunk()` list).
+Validated: T1 PASS (`latch-log 0→3`; pass `--a-reps 6000`, since the 9400 default
+builds a 244400-token prompt this pool rejects), T3 PASS, T4 PASS (`load_back +89536`,
+retract 0), 0 restarts.
 
 ### Hierarchical cache
 

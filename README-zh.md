@@ -157,6 +157,13 @@ make offline BUNDLE=/path/to/bundle
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
 | 启动后显存余量(32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
+第四个档是**可选、实验性**的:`kv-fp8-text-image-200k-mtp.yml`(VARIANT `fp8vmtp`,
+镜像 `llm-infer:spec-b1259f3e`)。它就是主线加上 NEXTN/MTP 投机解码,用上下文换
+decode 速度:池被 `--max-total-tokens` 钉在 **204800**(262144 的 78%),
+`--mem-fraction-static 0.93`、余量 1.79 GB,decode 从 **42.3 提到 61.8-62.6 tok/s
+(1.47×)**。其余(mrr 2、mamba 池 10、prefill 图关、mixed chunk 开、hrrn、HiCache、
+视觉)全部继承主线。
+
 **怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
 代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.21 树 + 烘焙调度器/HiCache 补丁上。
 **NVFP4 KV + 视觉**档是**实验性**的:仅当同一张卡需要 4 路并发——或 24 GB 卡上它是唯一
@@ -280,6 +287,38 @@ T1/T3/T4、`concurrency-load b2/t1/t2`、600 s soak(103 请求、0 错误、0 �
 `create_prefill_budget`),闩锁判据读取的行与配额记账完全不变。上游仅在与投机解码同用时禁止
 mixed chunk(`arg_groups/validation_hook.py`),本栈不用投机解码;`Mamba2AttnBackend` 明确支持
 prefill 与 decode 混批。
+
+### 投机解码:MTP draft
+
+`kv-fp8-text-image-200k-mtp.yml` 跑 NEXTN —— SGLang 内部把它解析成 EAGLE,draft 就是
+checkpoint 自带的那一层 MTP 模块。`--speculative-draft-model-path` 必须显式指向模型
+目录:上游"draft 在 target checkpoint 内"的白名单不含
+`Qwen3_5ForConditionalGeneration`。
+
+| | 主线 | + MTP draft |
+|---|---|---|
+| 上下文池 | 262144 | **204800**(由 `--max-total-tokens` 钉死) |
+| 显存余量 | 1.75 GB | 1.79 GB |
+| decode @~1K | 42.3 tok/s | **61.8-62.6 tok/s(1.47×)** |
+| decode @64K / @128K | — | 48.9 / 43.0 tok/s |
+| prefill @4K | 5489 tok/s | 5611 tok/s(持平) |
+| prefill @2K TTFT | 0.37 s | 0.54 s(退化 31%) |
+
+接受长度 1.73-1.93(上限 2,`--speculative-num-draft-tokens 2`)。上下文越长收益越小
+(KV 读取开始占主导),而短 prompt 每个 chunk 都要付一次 draft extend —— 所以这一档
+适合"短问答、decode 受限"的负载,不适合长上下文检索。超过约 204K token 的输入会被
+HTTP 400 拒掉。
+
+`spec-draft-share` 补丁是它能用的前提。原生 v0.5.21 会给 draft 单独分配 bf16 的
+`embed_tokens` + `lm_head`(vocab 248320 下 2 × 2.54 GB),按这个占用去 profile KV
+池,之后才在 `EagleDraftWorker.alloc_memory_pool()` 里共享 target 的那两份 —— 结果
+5.24 GB 白占、池只剩 97068。补丁把共享动作提前到 `__init__` 末尾(仅单 stage),且不
+加 `--speculative-algorithm` 时完全无效。详见 `inference/patches/spec-draft-share/`。
+
+`--enable-mixed-chunk` 保持开启(EAGLE 在上游 `supports_mixed_chunk()` 名单内)。
+已验证:T1 PASS(`latch-log 0→3`;需传 `--a-reps 6000`,默认的 9400 会造出 244400
+token 的 prompt,超出本档池子被拒)、T3 PASS、T4 PASS(`load_back +89536`,retract
+0)、0 次重启。
 
 ### 分层缓存
 
