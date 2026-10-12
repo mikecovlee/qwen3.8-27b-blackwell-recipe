@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acceptance: sched-latch patch on the mainline build (v0.5.20 line, hrrn).
+"""Acceptance: sched-latch patch on the mainline build (v0.5.21 line, hrrn).
 
 Verifies the baked false-latch patch live, on a real load — designed to be run
 against an ISOLATED test instance so production traffic never skews the timings.
@@ -16,7 +16,7 @@ Bring one up with a two-line compose override alongside your deployment file:
     python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
 
 T1 sched-latch-fix (false latch; anchor scheduler.py:3661 on d6e72886,
-scheduler.py:3887 on 06e4f2ed):
+scheduler.py:3887 on 06e4f2ed, scheduler.py:3976 on b1259f3e):
   A big cold prompt forces a long chunked prefill; a small request B is sent ~2.5s
   later. The bug latches batch_is_full until someone FINISHES, so the discriminator
   is NOT B's absolute TTFT — chunked prefill is inherently a single pipeline and B
@@ -42,6 +42,9 @@ import urllib.request
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://127.0.0.1:8080/generate")
 ap.add_argument("--container", default="llm-infer")
+# A costs ~26 tokens per rep, so the 9400 default needs a 262144-token pool;
+# lower it for profiles whose pool is smaller.
+ap.add_argument("--a-reps", type=int, default=9400)
 ARGS = ap.parse_args()
 
 T0 = time.time()
@@ -88,7 +91,7 @@ c0 = patch_counts()
 
 # ---------------- T1: false latch ----------------
 o1 = {}
-thA = threading.Thread(target=fire, args=(o1, "A", ("闩锁复验冷料" + str(SALT) + "。") * 9400, 1024))
+thA = threading.Thread(target=fire, args=(o1, "A", ("闩锁复验冷料" + str(SALT) + "。") * ARGS.a_reps, 1024))
 thA.start()
 fire(o1, "B", "请小结", 8, delay=2.5)
 thA.join(900)

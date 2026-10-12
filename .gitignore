@@ -14,5 +14,11 @@ models/
 __pycache__/
 *.pyc
 
+# Acceptance-tool run artifacts (regenerable; curated evidence lives in
+# evidence/, raw runs go to ../local/evidence/)
+/mamba-stash-T3-*/
+inference/tools/acceptance/mamba-stash-T3-*/
+haystack.txt
+
 # OS
 .DS_Store

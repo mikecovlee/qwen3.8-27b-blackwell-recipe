@@ -1,37 +1,42 @@
 # SGLang inference server — FP8 KV cache + vision. DEFAULT PROFILE.
 #
-# VALIDATED ON 32 GB (RTX PRO 4500; 2026-09-11, re-validated 09-15 & 09-19):
-# fits the full 262144-token pool WITH the vision tower by rebalancing
-# concurrency off the KV budget:
+# VALIDATED ON 32 GB (RTX PRO 4500; 2026-09-11, re-validated 09-15, 09-19 & on the
+# v0.5.21 line): fits the full 262144-token pool WITH the vision tower by
+# rebalancing concurrency off the KV budget:
 #   mrr 2 (not 4) + mamba pool at the upstream ratio (extra_buffer, pool 10 = 5 × mrr)
-#   + prefill CUDA graph OFF (measured 0-1% prefill cost, frees 1.19 GB)
-#   + mem-fraction 0.94.
-# Boot accounting: KV 8.0 GB — capped by --max-total-tokens, NOT by memory (the
-# static budget keeps ~0.7 GB unallocated) — mamba ~0.8 GB, ~1.78 GB runtime
-# headroom; cold 166K prefill 87 s with zero retractions.  Full rationale and
-# sizing history: README "Tuning".  On 48 GB+ raise mrr 4 / pool 20 / graph 4,
-# re-enable the prefill graph (fraction 0.90-0.92) and re-run the soak.  Prefer
-# this profile over NVFP4 KV unless you need 4 streams on 32 GB.
+#   + prefill CUDA graph OFF (~1.8 GB runtime headroom)
+#   + mem-fraction 0.94
+#   + mixed chunk ON (decode rides the prefill batch; worst decode gap 9.5 s -> 2.3 s).
+# The prefill graph cannot be afforded here: it costs ~1.1-1.6 GB, and with it on
+# the headroom drops to ~0.78 GB — too little for the HiCache host<->device thrash
+# (verify-hicache-thrash OOMs).  The measured prefill-latency cost of disabling it
+# is ~0-1%.  Boot accounting: KV pool 262144 tokens (capped by --max-total-tokens,
+# not by memory).  Full rationale and sizing history: README "Tuning".  On 48 GB+
+# raise mrr 4 / pool 20 / graph 4 and re-enable the prefill graph.
+# Prefer this profile over NVFP4 KV unless you need 4 streams on 32 GB.
 #
-# IMAGE (mainline since 2026-09-19): llm-infer:hicache-06e4f2ed = v0.5.20 base
-# (digest 06e4f2ed, tree 94602c9) with patches baked from inference/patches/:
-#   sched_latch_fix  — false-latch double count (anchor scheduler.py:3887,
+# IMAGE (mainline since v0.5.21): llm-infer:hicache-b1259f3e = v0.5.21 base
+# (digest b1259f3e, tree e00930c) with patches baked from inference/patches/:
+#   sched_latch_fix  — false-latch double count (anchor scheduler.py:3976,
 #                      self-verifying at startup; upstream still unfixed)
-#   hicache P1/P3/C  — chunked-prefill write-through backup, mamba alloc degrade
-#                      (skip + count instead of assert), host mamba pool knob
-# Retired here: P2 honest host-hit (absorbed upstream in v0.5.20) and the LPM
-# waitfix + its envs (replaced by --schedule-policy hrrn below).
+#   hicache P3       — mamba alloc degrade (skip + count instead of assert)
+# Retired here: P1 chunked write-through (absorbed upstream: chunked-prefill
+# stash + flush_pending_backups), P2 honest host-hit (absorbed in v0.5.20), the
+# C host-mamba-pool knob (obsolete: v0.5.21 sizes the mamba host pool from the
+# HiCache ratio — the patched code stays baked but dormant when the env is
+# unset), and the LPM waitfix + its envs (replaced by --schedule-policy hrrn
+# below).  v0.5.21 runs the unified radix tree on the Rust core by default.
 # Rebuild (context = patches/):
-#   docker build -f hicache-mamba-fix/img-06e4f2ed/Dockerfile \
-#     -t llm-infer:hicache-06e4f2ed .
+#   docker build -f hicache-mamba-fix/img-b1259f3e/Dockerfile \
+#     -t llm-infer:hicache-b1259f3e .
 # Acceptance gates (tools/acceptance/): T1 latch, T3 mamba stash (--expect safe),
-# T4 hicache thrash — all PASS on this build 2026-09-19 (../../evidence/).
+# T4 hicache thrash — all PASS on this build (../../evidence/).
 # The image is hardcoded: a stale ${SGLANG_IMAGE} .env pin once silently broke
 # reconciliation.  MAMBA_STRATEGY / MAMBA_POOL envs still drive the A/B arms of
 # verify-mamba-stash.py.  History: git log of this file.
 services:
   sglang:
-    image: llm-infer:hicache-06e4f2ed
+    image: llm-infer:hicache-b1259f3e
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -42,13 +47,8 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - MAX_JOBS=4
       - PYTHONUNBUFFERED=1
-      # Reduce fragmentation pressure on the ~1.9 GB runtime headroom.
+      # Reduce fragmentation pressure under the tight runtime headroom.
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      # Host mamba pool for HiCache load-back anchors: 7.0 GB = 88 slots.
-      # Criterion (upstream #36935): kv_pool_tokens/cps <= device + host slots
-      # => 262144/6144 ~ 43 <= 10 + 88.  Costs +3.7 GB host RAM vs the
-      # ratio-derived pool; without it branch reuse never re-admits.
-      - SGLANG_HICACHE_MAMBA_SIZE_GB=7.0
     shm_size: 8g
     restart: unless-stopped
     deploy:
@@ -73,10 +73,18 @@ services:
       - --max-total-tokens
       - "262144"
       # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
-      # count (kv_pool/cps) checked against the mamba slot budget.  6144 keeps
-      # 43 anchors <= 10 device + 88 host slots; 8192 OOMs this profile (32 GB).
+      # count (kv_pool/cps).  v0.5.21's reworked mamba accounting keeps 6144
+      # safe (T3/T4 validated on v0.5.21); 8192 OOMs this profile (32 GB).
       - --chunked-prefill-size
       - "6144"
+      # Mixed chunk: let running decode requests ride inside a chunked prefill
+      # batch.  Without it one long prefill freezes every concurrent decode for
+      # its whole duration (measured: a single 9.5 s inter-token gap on a
+      # 512-token stream during a 40K-token prefill; wall 12.1 s -> 22.0 s).
+      # It only trims the prefill token budget by the mixed decode tokens; row
+      # and quota accounting are unchanged, so the sched-latch anchor is
+      # unaffected (T1 re-verified with this flag on).
+      - --enable-mixed-chunk
       - --max-mamba-cache-size
       - "${MAMBA_POOL:-10}"
       - --mamba-radix-cache-strategy
@@ -90,9 +98,11 @@ services:
       - "2"
       - --cuda-graph-max-bs-decode
       - "2"
-      # Prefill CUDA graph costs ~1.2 GB and measured 0-1% prefill impact on this
-      # stack (chunked prefill of 6144 tokens is compute-bound, not launch-bound).
-      # Disabling it is what makes FP8 KV + vision + full 262144 fit on 32 GB.
+      # Prefill CUDA graph OFF: the captured shapes cost ~1.1-1.6 GB, which does
+      # not fit FP8 KV + vision + full 262144 on 32 GB once the HiCache
+      # host<->device thrash needs its headroom — with the graph on, T4
+      # hicache-thrash OOMs (measured on v0.5.21: only ~0.78 GB left -> CUDA OOM).
+      # Prefill-latency cost of disabling it is ~0-1% (README "Tuning").
       - --disable-prefill-cuda-graph
       # HRRN admission ordering (upstream aging-based policy; mainline since
       # 2026-09-19, replacing lpm + the retired sched_lpm_waitfix).

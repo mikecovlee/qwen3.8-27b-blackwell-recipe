@@ -32,7 +32,7 @@ import difflib, json, subprocess, sys
 
 env = sys.argv[1]
 files = ["inference/kv-nvfp4-text-image.yml", "inference/kv-fp8-text-only.yml",
-         "inference/kv-fp8-text-image.yml"]
+         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-200k-mtp.yml"]
 
 def command(path):
     out = subprocess.run(
@@ -42,18 +42,22 @@ def command(path):
 
 # Flags that exist in only one variant (drop flag + its single value).
 DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-attention-backend",
+        "--prefill-kv-cache-dequant-dtype", "--cuda-graph-max-bs-prefill",
         "--attention-backend", "--mm-process-config",
         "--image-processor-backend", "--limit-mm-data-per-request",
-        "--schedule-policy", "--chunked-prefill-size"}
+        "--schedule-policy", "--chunked-prefill-size",
+        "--speculative-algorithm", "--speculative-draft-model-path", "--speculative-num-steps",
+        "--speculative-eagle-topk", "--speculative-num-draft-tokens",
+        "--speculative-draft-kv-cache-dtype"}
 # Boolean flags that exist in only one variant (no value to consume).
-DROP_BOOL = {"--disable-prefill-cuda-graph"}
+DROP_BOOL = {"--disable-prefill-cuda-graph", "--enable-mixed-chunk"}
 # Flags shared but intentionally different between variants (normalize the value).
 # mrr / mamba pool / graph bs move TOGETHER per profile (three-knob rule, see README
-# Tuning): fp8-text-image (mainline, v0.5.20 tree) runs 2/10/2 on 32 GB with the
+# Tuning): fp8-text-image (mainline, v0.5.21 tree) runs 2/10/2 on 32 GB with the
 # extra_buffer strategy; the legacy profiles (old pinned tree) run 4/16/4 + lazy.
-NORM = {"--kv-cache-dtype", "--mem-fraction-static", "--max-running-requests",
-        "--max-mamba-cache-size", "--cuda-graph-max-bs-decode",
-        "--mamba-radix-cache-strategy"}
+NORM = {"--kv-cache-dtype", "--mem-fraction-static", "--max-total-tokens",
+        "--max-running-requests", "--max-mamba-cache-size",
+        "--cuda-graph-max-bs-decode", "--mamba-radix-cache-strategy"}
 
 def norm(cmd):
     out, i = [], 0

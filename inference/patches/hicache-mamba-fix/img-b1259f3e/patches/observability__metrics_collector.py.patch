@@ -1,0 +1,28 @@
+diff --git a/python/sglang/srt/observability/metrics_collector.py b/python/sglang/srt/observability/metrics_collector.py
+index bab9530..4b57b36 100644
+--- a/python/sglang/srt/observability/metrics_collector.py
++++ b/python/sglang/srt/observability/metrics_collector.py
+@@ -2292,6 +2292,13 @@ class RadixCacheMetricsCollector(_StatLoggerDIMixin):
+             labelnames=list(labels.keys()) + ["reason", "pool"],
+         )
+ 
++        self.radix_cache_aux_alloc_failed_total = Counter(
++            name="sglang:radix_cache_aux_alloc_failed_total",
++            documentation="The number of auxiliary (e.g. mamba) cache slot "
++            "allocations skipped because no slot could be evicted.",
++            labelnames=labels.keys(),
++        )
++
+     def increment_eviction_num_tokens(self, num_tokens: int) -> None:
+         self.eviction_num_tokens.labels(**self.labels).inc(num_tokens)
+ 
+@@ -2321,6 +2328,9 @@ class RadixCacheMetricsCollector(_StatLoggerDIMixin):
+             num_tokens
+         )
+ 
++    def increment_aux_alloc_failed(self) -> None:
++        self.radix_cache_aux_alloc_failed_total.labels(**self.labels).inc()
++
+ 
+ class EncoderMetricsCollector(_StatLoggerDIMixin):
+     """Metrics collector for the EPD encoder server (--encoder-only)."""

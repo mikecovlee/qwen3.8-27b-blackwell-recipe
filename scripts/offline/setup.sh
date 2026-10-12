@@ -15,15 +15,16 @@ die() { printf '\033[1;31m[offline] error:\033[0m %s\n' "$*" >&2; exit 1; }
 VARIANT="${VARIANT:-$(cat "${BUNDLE}/VARIANT" 2>/dev/null || true)}"
 VARIANT="${VARIANT:-fp8v}"
 case "$VARIANT" in
-  nvfp4) COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
-  fp8)   COMPOSE="inference/kv-fp8-text-only.yml" ;;
-  fp8v)  COMPOSE="inference/kv-fp8-text-image.yml" ;;
-  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v)" ;;
+  nvfp4)    COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
+  fp8)      COMPOSE="inference/kv-fp8-text-only.yml" ;;
+  fp8v)     COMPOSE="inference/kv-fp8-text-image.yml" ;;
+  fp8vmtp) COMPOSE="inference/kv-fp8-text-image-200k-mtp.yml" ;;
+  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
 esac
-if [[ "$VARIANT" == "fp8v" ]] && command -v nvidia-smi >/dev/null; then
+if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]] && command -v nvidia-smi >/dev/null; then
   mem="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')"
   if [[ -n "$mem" ]]; then
-    [[ "$mem" -ge 30000 ]] || die "VARIANT=fp8v needs a 32 GB+ GPU (detected: ${mem} MiB)"
+    [[ "$mem" -ge 30000 ]] || die "VARIANT=$VARIANT needs a 32 GB+ GPU (detected: ${mem} MiB)"
   fi
 fi
 
@@ -45,10 +46,9 @@ if [[ ! -f .env ]]; then
   sed -i "s#^SESSION_SECRET=.*#SESSION_SECRET=${secret}#" .env
   sed -i "s#^MODELS_DIR=.*#MODELS_DIR=${HOME}/models#" .env
 fi
-if [[ "$VARIANT" == "fp8v" ]]; then
-  expected_image="llm-infer:hicache-06e4f2ed"
-else
-  expected_image="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
+expected_image="llm-infer:hicache-b1259f3e"
+if [[ "$VARIANT" == "fp8vmtp" ]]; then
+  expected_image="llm-infer:spec-b1259f3e"
 fi
 if grep -q '^SGLANG_IMAGE=' .env; then
   sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${expected_image}#" .env

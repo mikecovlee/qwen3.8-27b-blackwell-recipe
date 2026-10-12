@@ -5,12 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:06e4f2ed21afde4ff513cda65070124e727ba23ccaeff7712b8c40e1097d611f"
-DERIVED_IMAGE="llm-infer:hicache-06e4f2ed"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469"
+DERIVED_IMAGE="llm-infer:hicache-b1259f3e"
+SPEC_IMAGE="llm-infer:spec-b1259f3e"
 PATCH_DIR="inference/patches"
-SGLANG_DIGEST_LEGACY="lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376"
-SGLANG_TAG_LEGACY="lmsysorg/sglang:dev-qwen38-27b-dflash2"
-NEWAPI_IMAGE="calciumion/new-api:v1.0.0-rc.36"
+NEWAPI_IMAGE="calciumion/new-api:v1.0.0-rc.40"
 MODEL_REPO="nvidia/Qwen3.8-27B-NVFP4"
 MODEL_DIR_NAME="Qwen3.8-27B-NVFP4"
 
@@ -22,7 +21,8 @@ case "$VARIANT" in
   nvfp4) COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
   fp8)   COMPOSE="inference/kv-fp8-text-only.yml" ;;
   fp8v)  COMPOSE="inference/kv-fp8-text-image.yml" ;;
-  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v)" ;;
+  fp8vmtp) COMPOSE="inference/kv-fp8-text-image-200k-mtp.yml" ;;
+  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
 esac
 
 log "preflight (variant: $VARIANT)"
@@ -31,9 +31,9 @@ docker compose version >/dev/null 2>&1 || die "docker compose v2 not found"
 command -v nvidia-smi >/dev/null || die "nvidia-smi not found (install the NVIDIA driver)"
 nvidia-smi >/dev/null 2>&1 || die "no usable NVIDIA GPU"
 docker info 2>/dev/null | grep -qi nvidia || log "warning: nvidia container runtime not detected"
-if [[ "$VARIANT" == "fp8v" ]]; then
+if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]]; then
   mem="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')"
-  [[ -n "$mem" && "$mem" -ge 30000 ]] || die "VARIANT=fp8v needs a 32 GB+ GPU (detected: ${mem:-?} MiB)"
+  [[ -n "$mem" && "$mem" -ge 30000 ]] || die "VARIANT=$VARIANT needs a 32 GB+ GPU (detected: ${mem:-?} MiB)"
 fi
 
 if [[ ! -f .env ]]; then
@@ -46,21 +46,16 @@ fi
 set -a; source .env; set +a
 : "${MODELS_DIR:?set MODELS_DIR in .env}"
 
-if [[ "$VARIANT" == "fp8v" ]]; then
-  log "pulling SGLang base image (${SGLANG_BASE_DIGEST})"
-  docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
-  log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-06e4f2ed/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
-  SGLANG_IMAGE_FINAL="$DERIVED_IMAGE"
+log "pulling SGLang base image (${SGLANG_BASE_DIGEST})"
+docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
+log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
+docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+if [[ "$VARIANT" == "fp8vmtp" ]]; then
+  log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
+  docker build -f "${PATCH_DIR}/spec-draft-share/img-b1259f3e/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"
+  SGLANG_IMAGE_FINAL="$SPEC_IMAGE"
 else
-  log "pulling SGLang image (${SGLANG_DIGEST_LEGACY})"
-  if ! docker pull "$SGLANG_DIGEST_LEGACY"; then
-    log "digest unavailable, falling back to tag ${SGLANG_TAG_LEGACY}"
-    docker pull "$SGLANG_TAG_LEGACY"
-    SGLANG_IMAGE_FINAL="$SGLANG_TAG_LEGACY"
-  else
-    SGLANG_IMAGE_FINAL="$SGLANG_DIGEST_LEGACY"
-  fi
+  SGLANG_IMAGE_FINAL="$DERIVED_IMAGE"
 fi
 if grep -q '^SGLANG_IMAGE=' .env; then
   sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${SGLANG_IMAGE_FINAL}#" .env
