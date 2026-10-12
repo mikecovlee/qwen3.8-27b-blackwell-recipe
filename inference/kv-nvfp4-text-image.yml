@@ -1,9 +1,17 @@
-# SGLang inference server — NVFP4 KV cache + vision (4 streams on 32 GB).
+# SGLang inference server — NVFP4 KV cache + vision (4 streams on 32 GB). EXPERIMENTAL.
 #
-# KNOWN OCCASIONAL INSTABILITY: this profile emitted intermittent garbled reasoning in
-# production (token-soup, once a 20000-token runaway) under multi-session churn —
-# see README "NVFP4 caveats".  Use it only if you need 4 streams on 32 GB, or on a
-# 24 GB card, where NVFP4 KV's smaller footprint is the only meaningful option.
+# EXPERIMENTAL / NOT THE DEFAULT.  This profile exists only for 4 concurrent streams on
+# 32 GB (or a 24 GB card).  On SM120 it carries two known defects with no fix:
+#   1. Concurrent-long-prefill crash (upstream sizing bug): four concurrent requests whose
+#      matched-prefix sum exceeds ~one context (empirically each prompt > ~140K tokens,
+#      combined > ~2x the 262144 context) return HTTP 500 and restart the container.
+#      No CLI flag avoids it (nvfp4 KV + flashinfer prefill is forced through the
+#      NVFP4->FP8 dequant workspace on SM120), and disabling the prefill CUDA graph makes
+#      it worse (crashes at 4x120K).  Keep the concurrent matched-prefix sum under ~262K
+#      tokens (empirically each of 4 concurrent prompts <= ~120K); for 4-way
+#      very-long-context use the FP8 profiles.
+#   2. Occasional garbled reasoning under multi-session churn (observed in production).
+# See README "NVFP4 caveats" and evidence/stability-20261012/REPORT.md.
 #
 # Serves Qwen3.8-27B with a 262144-token context.  Default / lower-risk profile is
 # kv-fp8-text-image.yml; high-concurrency text-only is kv-fp8-text-only.yml.  Full

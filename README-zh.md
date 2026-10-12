@@ -15,8 +15,8 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 - 单张 32 GB 卡**常驻完整 262144 token 上下文**。
 - 并发流近线性扩展、零 retraction:默认 2 路(FP8 KV 档),NVFP4 档 4 路。
 - **FP8 KV + 视觉**为 32 GB 主线默认档(满 262144 上下文、mrr 2、prefill CUDA graph 开并
-  封顶 2048;v0.5.21 树、Rust radix 核心);**NVFP4 KV + 视觉**用于 32 GB 上需要 4 路并发的场景
-  (v0.5.21 树;已知偶发 reasoning 乱码不稳定);**FP8 KV 纯文本**用于高并发
+  封顶 2048;v0.5.21 树、Rust radix 核心);**NVFP4 KV + 视觉**(**实验性**)用于 32 GB 上需要 4 路并发的场景
+  (v0.5.21 树;已知偶发 reasoning 乱码,以及并发超长 prefill 崩溃——见[NVFP4 注意事项](#nvfp4-注意事项));**FP8 KV 纯文本**用于高并发
   (4 路)纯文本场景(v0.5.21 树)。
 - **分层 KV 缓存**(主机内存 L2),驱逐后重载极快。
 - **网关**:每用户 key、三档缓存感知计费、主通道故障自动切换到备通道。
@@ -140,7 +140,7 @@ make offline BUNDLE=/path/to/bundle
 `inference/` 下有三个各自完整可读的 compose 文件,除下表所列外参数完全一致
 (`make check` 会强制校验这一点)。
 
-| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.21 树) | `kv-nvfp4-text-image.yml`(v0.5.21 树,32 GB,4 路) | `kv-fp8-text-only.yml`(v0.5.21 树,32 GB,4 路) |
+| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.21 树) | `kv-nvfp4-text-image.yml`(**实验性**,v0.5.21 树,32 GB,4 路) | `kv-fp8-text-only.yml`(v0.5.21 树,32 GB,4 路) |
 | --- | --- | --- | --- |
 | 镜像(默认) | `llm-infer:hicache-b1259f3e`(派生;调度器 + HiCache 补丁均已烘焙) | `llm-infer:hicache-b1259f3e` | `llm-infer:hicache-b1259f3e` |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
@@ -157,9 +157,11 @@ make offline BUNDLE=/path/to/bundle
 | 启动后显存余量(32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
 **怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
-代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.21 树 + 烘焙调度器/HiCache 补丁上。同一张卡需要
-4 路并发、且接受其**偶发 reasoning 乱码不稳定**([NVFP4 注意事项](#nvfp4-注意事项))时才选
-**NVFP4 KV + 视觉**(v0.5.21 树);24 GB 卡上它是唯一有意义的选择;从不发图片且要高并发选
+代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.21 树 + 烘焙调度器/HiCache 补丁上。
+**NVFP4 KV + 视觉**档是**实验性**的:仅当同一张卡需要 4 路并发——或 24 GB 卡上它是唯一
+有意义的选择——时才选,且要同时接受**偶发 reasoning 乱码**与**并发超长 prefill 崩溃**
+(见 [NVFP4 注意事项](#nvfp4-注意事项);并发已匹配前缀之和保持在 ~262K token 以下)。
+4 路**超长上下文**请改用 **FP8** 档。从不发图片且要高并发选
 **FP8 纯文本**(v0.5.21 树)。48 GB+ 可把主线档上调为 mrr 4 / 池 20 / graph 4(池 = 5 × mrr,
 见[调优要点](#调优要点))并提高 prefill 上限,然后重跑
 `tools/concurrency-load.py soak`。
@@ -298,9 +300,23 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
 
 ### NVFP4 注意事项
 
-> **已知偶发不稳定(生产环境实际遇到)。** 本档会偶发 reasoning 乱码——见首条。除非需要 32 GB
-> 上的 4 路并发,或使用 **24 GB** 卡(NVFP4 KV 更小的占用是唯一有意义的选择),否则请用 FP8 默认档。
+> **实验性。** NVFP4 档不是受支持的默认档——它只为在 32 GB 上跑 4 路并发(或 24 GB 卡)而存在。
+> 在 SM120 上它带两个**无法修复**的已知缺陷:*并发超长 prefill 硬崩溃*(首条)与*偶发 reasoning
+> 乱码*(次条)。除非确实需要 NVFP4,否则请用 FP8 档。
 
+- **并发超长 prefill 崩溃(上游 bug,未修复)**:四个并发请求的*已匹配前缀之和*超过约一个上下文时
+  会击垮调度器——四路全部返回 HTTP 500,进程树被杀,容器重启(约 70 s)。实测触发条件:4 路并发
+  各自 ≳140K token(合计 ≳ ~2 倍 262144 上下文);4×120K 安全,4×160K/200K/240K 崩溃。根因:
+  NVFP4→FP8 的 prefill 反量化 workspace 只按**单个**上下文分配
+  (`fp4_kv_cache_quant_method.create_buffers`:`m = max_total_tokens + page_size`),而
+  `memory_pool._prepare_dequant_extend_workspace` 却按**整个 batch 累加**索引它
+  (`Σ(已匹配前缀 + chunk)`);一旦超出 buffer 写入即越界(`RuntimeError: The expanded size ...
+  [X,4,256] vs [Y,4,256]`;X+Y ≈ 262080 ≈ `max_total_num_tokens`)。没有任何 CLI 参数能绕开——
+  SM120 上 nvfp4 KV + flashinfer prefill 被无条件导向该 workspace(原生 NVFP4 prefill 需 SM100)——
+  且关掉 prefill CUDA graph 会**更糟**(4×120K 即崩)。**安全边界:并发请求的已匹配前缀合计保持在
+  ~262K token 以下(实测 4 路各自 ≤ ~120K)。** 4 路**超长上下文**请用 FP8 档。证据:
+  `evidence/stability-20261012/REPORT.md`(NVFP4)与
+  `evidence/stability-20261012-fp8/REPORT.md`(FP8,无崩溃对照)。
 - **多会话扰动下的偶发 reasoning 乱码(未定案,生产环境实际遇到)**:在一次 40 分钟的窗口里(mrr 4 打满 +
   mamba 池钉在 `available = 0`,路径状态持续被驱逐/主机换入),一个长 agent 会话间歇性
   产出 token-soup 式乱码 reasoning,一次失控到 20000 token。26 分钟受控合成饱和复现
@@ -314,6 +330,9 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
 
 ## 已知坑
 
+- **NVFP4 KV 档在并发超长 prefill 下会崩溃**(NVFP4 prefill 反量化 workspace 的上游 sizing bug;
+  见 [NVFP4 注意事项](#nvfp4-注意事项))。4 路并发各自 ≳140K token(合计 ≳ ~2 倍上下文)会返回 HTTP 500
+  并重启容器。并发已匹配前缀之和保持在 ~262K token 以下,或 4 路长上下文改用 FP8 档。
 - **NVFP4 KV 档偶发 reasoning 乱码**(间歇性,生产环境实际遇到;见 [NVFP4 注意事项](#nvfp4-注意事项))。
   仅在需要 32 GB 上 4 路并发、或 24 GB 卡上(此时是唯一有意义的选择)时使用。
 - **`trtllm_mha` 会把 `page_size` 改成 64**,此后默认的 `--mamba-max-states-per-path -1`
@@ -355,6 +374,9 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
 | batch 4 @1K | 153.4 | 152.3 tok/s |
 | batch 4 @48K | 118.6 | 128.2 tok/s |
 | soak 600 s | 106 req / 0 err | 106 req / 0 err |
+
+以上数字不含「并发超长 prefill」场景:该场景 NVFP4 档会崩溃,而 FP8 档不受影响——见
+[NVFP4 注意事项](#nvfp4-注意事项)。
 
 ### FP8 KV + 视觉 @32 GB(池 8 基线,2026-09-11)
 

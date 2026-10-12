@@ -203,3 +203,15 @@ unfixed upstream). Two items were retired: **P1** (v0.5.21 ships a chunked-prefi
 unified radix cache on the **Rust core** by default. Twin acceptance on the shipped profile
 (T1 latch / T3 stash / T4 thrash) and the FP8 quant gate all PASS. Evidence:
 [`sglang-0521-upgrade/`](sglang-0521-upgrade/).
+
+## Stability battery (2026-10-12)
+
+Overnight stress/soak of both v0.5.21 KV profiles. **NVFP4** (`kv-nvfp4-text-image.yml`,
+4 streams): all standard tiers pass (T0 T1/T3/T4, concurrency, RULER to ~234K, prefix
+cache, mamba-saturation 740 s **0 garble**, image ladder 1-96, soak) **except** a hard
+crash under 4 concurrent long prefills — an upstream NVFP4 prefill-dequant workspace
+sizing bug (concurrent matched-prefix sum > ~one context => HTTP 500 + restart; no CLI
+flag avoids it). **FP8** (`kv-fp8-text-image.yml` mrr 2 / `kv-fp8-text-only.yml` mrr 4):
+the same battery with **no crash**, cross-validating the defect as NVFP4-KV-specific.
+Reports: [`stability-20261012/REPORT.md`](stability-20261012/REPORT.md) (NVFP4),
+[`stability-20261012-fp8/REPORT.md`](stability-20261012-fp8/REPORT.md) (FP8).

@@ -19,8 +19,9 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
   default (FP8 KV profile), 4 with the NVFP4 profile.
 - **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
   mrr 2, prefill CUDA graph on, shape-capped; v0.5.21 tree, Rust radix core); **NVFP4 KV +
-  vision** for 4 streams on 32 GB (v0.5.21 tree; known occasional
-  garbled-reasoning instability); **FP8 KV text-only** for high-concurrency (4 streams)
+  vision** (*experimental*) for 4 streams on 32 GB (v0.5.21 tree; known occasional
+  garbled-reasoning instability and a concurrent-long-prefill crash — see
+  [NVFP4 caveats](#nvfp4-caveats)); **FP8 KV text-only** for high-concurrency (4 streams)
   text-only serving (v0.5.21 tree).
 - **Hierarchical KV cache** (host-RAM L2) with fast re-admission after eviction.
 - **Gateway**: per-user keys, 3-tier cache-aware pricing, automatic failover to a
@@ -152,7 +153,7 @@ services and waits for health.
 Three self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.21 tree) | `kv-nvfp4-text-image.yml` (32 GB, 4 streams) | `kv-fp8-text-only.yml` (32 GB, 4 streams) |
+| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.21 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (32 GB, 4 streams) |
 | --- | --- | --- | --- |
 | image (default) | `llm-infer:hicache-b1259f3e` (derived; scheduler + HiCache patches baked in) | `llm-infer:hicache-b1259f3e` (same, baked) | `llm-infer:hicache-b1259f3e` (same, baked) |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
@@ -170,12 +171,14 @@ except the ones below (`make check` enforces this):
 
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
-each), on the v0.5.21 tree with baked-in scheduler + HiCache patches. Pick **NVFP4 KV + vision**
-only when you need 4 streams on the same card and accept its **occasional
-garbled-reasoning instability** ([NVFP4 caveats](#nvfp4-caveats)) — or on a **24 GB**
-card, where its smaller KV footprint is the only meaningful option. Pick **FP8
-text-only** if you never send images and want 4 streams. On 48 GB+, raise the
-mainline profile to mrr 4 / pool 20 / graph 4 (pool = 5 × mrr, see
+each), on the v0.5.21 tree with baked-in scheduler + HiCache patches. The
+**NVFP4 KV + vision** profile is **experimental**: pick it only when you need 4 streams
+on the same card — or on a **24 GB** card, where its smaller KV footprint is the only
+meaningful option — and accept both its **occasional garbled-reasoning instability** and
+its **concurrent-long-prefill crash** (see [NVFP4 caveats](#nvfp4-caveats); keep the
+concurrent matched-prefix sum under ~262K tokens). For 4-way *very-long-context*, use the
+**FP8** profiles. Pick **FP8 text-only** if you never send images and want 4 streams. On
+48 GB+, raise the mainline profile to mrr 4 / pool 20 / graph 4 (pool = 5 × mrr, see
 [Tuning](#tuning)) and raise the prefill cap accordingly, then
 re-run `tools/concurrency-load.py soak`.
 
@@ -344,11 +347,30 @@ mamba-GB env. The regression gate `verify-hicache-thrash.py` demands a real host
 
 ### NVFP4 caveats
 
-> **Known occasional instability (observed in production).** This profile emitted intermittent
-garbled reasoning — see the first bullet. Prefer the FP8 default unless you need 4
-streams on 32 GB, or you are on a **24 GB** card where NVFP4 KV's smaller footprint is
-the only meaningful option.
+> **Experimental.** The NVFP4 profiles are not the supported default — they exist only
+> for 4 concurrent streams on 32 GB (or a 24 GB card). On SM120 they carry two known
+> defects that have **no fix**: a *hard crash* under concurrent long prefills (first
+> bullet) and *occasional garbled reasoning* (second bullet). Prefer the FP8 profiles
+> unless you specifically need NVFP4.
 
+- **Concurrent-long-prefill crash (upstream bug, open)**: four concurrent requests whose
+  *matched-prefix sum* exceeds roughly one context crash the scheduler — all four return
+  HTTP 500, the process tree is killed and the container restarts (~70 s). Empirical
+  trigger: 4 concurrent prompts of ≳140K tokens each (combined ≳ ~2x the 262144 context);
+  4x120K is safe, 4x160K/200K/240K crash. Root cause: the NVFP4->FP8 prefill dequant
+  workspace is sized for a **single** context
+  (`fp4_kv_cache_quant_method.create_buffers`: `m = max_total_tokens + page_size`) but
+  `memory_pool._prepare_dequant_extend_workspace` indexes it **cumulatively across the
+  batch** as `Σ(matched_prefix + chunk)`; once that exceeds the buffer the write is out
+  of range (`RuntimeError: The expanded size ... [X,4,256] vs [Y,4,256]`; X+Y ≈ 262080 ≈
+  `max_total_num_tokens`). No CLI flag avoids it — on SM120, nvfp4 KV + flashinfer
+  prefill is unconditionally routed to this workspace (native NVFP4 prefill needs SM100) —
+  and disabling the prefill CUDA graph makes it **worse** (crashes already at 4x120K).
+  **Safe envelope: keep the concurrent requests' combined matched-prefix length below
+  ~262K tokens (empirically, each of 4 concurrent prompts ≤ ~120K).** For 4-way
+  *very-long-context*, use the FP8 profiles. Evidence:
+  `evidence/stability-20261012/REPORT.md` (NVFP4) and
+  `evidence/stability-20261012-fp8/REPORT.md` (FP8, crash-free control).
 - **Occasional garbled reasoning under multi-session churn (open, observed in production)**: inside a 40-minute
   window where mrr 4 was saturated and the mamba pool pinned at `available = 0` (constant
   eviction / host reload of path states), one long agent session intermittently produced
@@ -367,6 +389,11 @@ the only meaningful option.
 
 ## Known issues
 
+- **The NVFP4 KV profile crashes under concurrent long prefills** (upstream sizing bug in
+  the NVFP4 prefill-dequant workspace; see [NVFP4 caveats](#nvfp4-caveats)). Four
+  concurrent prompts of ≳140K tokens each (combined ≳ ~2x the context) return HTTP 500 and
+  restart the container. Keep the concurrent matched-prefix sum under ~262K tokens, or use
+  the FP8 profiles for 4-way long context.
 - **The NVFP4 KV profile occasionally emits garbled reasoning** (intermittent, observed in
   production; see [NVFP4 caveats](#nvfp4-caveats)). Use it only for 4 streams
   on 32 GB, or on a 24 GB card where it is the only meaningful variant.
@@ -417,6 +444,9 @@ Measured on the target card (RTX PRO 4500, 32 GB, sm120). Full results in
 | batch 4 @1K | 153.4 | 152.3 tok/s |
 | batch 4 @48K | 118.6 | 128.2 tok/s |
 | soak 600 s | 106 req / 0 err | 106 req / 0 err |
+
+These figures exclude the concurrent-long-prefill case, where the NVFP4 profile crashes
+and the FP8 profiles are unaffected — see [NVFP4 caveats](#nvfp4-caveats).
 
 ### FP8 KV + vision on 32 GB (pool-8 baseline, 2026-09-11)
 
