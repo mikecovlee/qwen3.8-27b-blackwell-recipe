@@ -28,7 +28,7 @@ log "pulling SGLang base image (v0.5.21 line)"
 docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
 log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
 docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
-if [[ "$VARIANT" == "fp8vspec" ]]; then
+if [[ "$VARIANT" == "fp8vmtp" ]]; then
   img="$SPEC_IMAGE"
   log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
   docker build -f "${PATCH_DIR}/spec-draft-share/img-b1259f3e/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"

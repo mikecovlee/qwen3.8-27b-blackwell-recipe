@@ -21,8 +21,8 @@ case "$VARIANT" in
   nvfp4) COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
   fp8)   COMPOSE="inference/kv-fp8-text-only.yml" ;;
   fp8v)  COMPOSE="inference/kv-fp8-text-image.yml" ;;
-  fp8vspec) COMPOSE="inference/kv-fp8-text-image-spec.yml" ;;
-  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vspec)" ;;
+  fp8vmtp) COMPOSE="inference/kv-fp8-text-image-200k-mtp.yml" ;;
+  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
 esac
 
 log "preflight (variant: $VARIANT)"
@@ -31,7 +31,7 @@ docker compose version >/dev/null 2>&1 || die "docker compose v2 not found"
 command -v nvidia-smi >/dev/null || die "nvidia-smi not found (install the NVIDIA driver)"
 nvidia-smi >/dev/null 2>&1 || die "no usable NVIDIA GPU"
 docker info 2>/dev/null | grep -qi nvidia || log "warning: nvidia container runtime not detected"
-if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vspec" ]]; then
+if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]]; then
   mem="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')"
   [[ -n "$mem" && "$mem" -ge 30000 ]] || die "VARIANT=$VARIANT needs a 32 GB+ GPU (detected: ${mem:-?} MiB)"
 fi
@@ -50,7 +50,7 @@ log "pulling SGLang base image (${SGLANG_BASE_DIGEST})"
 docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
 log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
 docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
-if [[ "$VARIANT" == "fp8vspec" ]]; then
+if [[ "$VARIANT" == "fp8vmtp" ]]; then
   log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
   docker build -f "${PATCH_DIR}/spec-draft-share/img-b1259f3e/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"
   SGLANG_IMAGE_FINAL="$SPEC_IMAGE"

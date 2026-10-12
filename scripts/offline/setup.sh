@@ -18,10 +18,10 @@ case "$VARIANT" in
   nvfp4)    COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
   fp8)      COMPOSE="inference/kv-fp8-text-only.yml" ;;
   fp8v)     COMPOSE="inference/kv-fp8-text-image.yml" ;;
-  fp8vspec) COMPOSE="inference/kv-fp8-text-image-spec.yml" ;;
-  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vspec)" ;;
+  fp8vmtp) COMPOSE="inference/kv-fp8-text-image-200k-mtp.yml" ;;
+  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
 esac
-if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vspec" ]] && command -v nvidia-smi >/dev/null; then
+if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]] && command -v nvidia-smi >/dev/null; then
   mem="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')"
   if [[ -n "$mem" ]]; then
     [[ "$mem" -ge 30000 ]] || die "VARIANT=$VARIANT needs a 32 GB+ GPU (detected: ${mem} MiB)"
@@ -47,7 +47,7 @@ if [[ ! -f .env ]]; then
   sed -i "s#^MODELS_DIR=.*#MODELS_DIR=${HOME}/models#" .env
 fi
 expected_image="llm-infer:hicache-b1259f3e"
-if [[ "$VARIANT" == "fp8vspec" ]]; then
+if [[ "$VARIANT" == "fp8vmtp" ]]; then
   expected_image="llm-infer:spec-b1259f3e"
 fi
 if grep -q '^SGLANG_IMAGE=' .env; then

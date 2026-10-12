@@ -4,7 +4,7 @@
 #   docker build -f spec-draft-share/img-b1259f3e/Dockerfile \
 #     -t llm-infer:spec-b1259f3e .
 #
-# Only inference/kv-fp8-text-image-spec.yml uses this image; the other three
+# Only inference/kv-fp8-text-image-200k-mtp.yml uses this image; the other three
 # profiles stay on llm-infer:hicache-b1259f3e, which this is derived from.
 FROM llm-infer:hicache-b1259f3e
 

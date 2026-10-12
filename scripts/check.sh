@@ -32,7 +32,7 @@ import difflib, json, subprocess, sys
 
 env = sys.argv[1]
 files = ["inference/kv-nvfp4-text-image.yml", "inference/kv-fp8-text-only.yml",
-         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-spec.yml"]
+         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-200k-mtp.yml"]
 
 def command(path):
     out = subprocess.run(
