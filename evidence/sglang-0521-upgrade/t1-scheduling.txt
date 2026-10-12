@@ -1,5 +1,0 @@
-$ python3 verify-scheduling-patches.py --url http://localhost:8099/generate --container llm-infer-test
-T1 latch:  A decode@169.1 A turn-done@204.1 B decode@169.1  -> B BEFORE A's finish (35s discrimination window)
-
-latch-log 0->3 | RESULT: PASS
-exit=0

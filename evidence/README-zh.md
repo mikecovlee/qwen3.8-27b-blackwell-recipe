@@ -177,25 +177,3 @@ hicache thrash PASS(244K 冷 124 s → host 重载 35 s、`load_back` +136K →
 运营当日即接受 HRRN(验收全绿、早期生产行为干净):waitfix 模块与其 T2
 行为测试退役(git 历史保留),`06e4f2ed` + `hrrn` 自 2026-09-19 起为主线;
 原观察 profile 已并入 `kv-fp8-text-image.yml` 并删除。
-
-## SGLang v0.5.21 迁移
-
-将补丁构建重新锚定到 v0.5.21(`llm-infer:hicache-b1259f3e`,基座 digest `b1259f3e`,
-tree `e00930c`)。假闩锁锚点从 scheduler.py:3887 移至 3976(上游仍未修复)。两项退役:
-**P1**(v0.5.21 自带 chunked-prefill stash + `flush_pending_backups()`,且新默认的
-Rust 树核心没有 `node_by_id`)与 **C** host mamba 池旋钮(host mamba 池现由 HiCache
-ratio 定容;`SGLANG_HICACHE_MAMBA_SIZE_GB` 不再设置,补丁代码烘焙但仍休眠)。P3
-(`components/mamba.py:509` 仍为致命断言)继续携带。v0.5.21 的 unified radix cache
-默认跑在 **Rust 核心**上。出货 profile 的孪生验收(T1 闩锁 / T3 stash / T4 thrash)
-与 FP8 量化门禁全部 PASS。证据:[`sglang-0521-upgrade/`](sglang-0521-upgrade/)。
-
-## 稳定性压测(2026-10-12)
-
-对两套 v0.5.21 KV 档的通宵压测。**NVFP4**(`kv-nvfp4-text-image.yml`,4 路):所有标准层级
-通过(T0 T1/T3/T4、并发、RULER 至 ~234K、前缀缓存、mamba 饱和 740 s **0 乱码**、图像阶梯
-1–96、soak),**唯一例外**是 4 路并发超长 prefill 硬崩溃——NVFP4 prefill 反量化 workspace 的
-上游 sizing bug(并发已匹配前缀之和 > ~一个上下文 ⇒ HTTP 500 + 重启;无 CLI 参数可绕)。
-**FP8**(`kv-fp8-text-image.yml` mrr 2 / `kv-fp8-text-only.yml` mrr 4):同一套压测**无崩溃**,
-交叉验证该缺陷为 NVFP4-KV 专属。报告:
-[`stability-20261012/REPORT.md`](stability-20261012/REPORT.md)(NVFP4)、
-[`stability-20261012-fp8/REPORT.md`](stability-20261012-fp8/REPORT.md)(FP8)。

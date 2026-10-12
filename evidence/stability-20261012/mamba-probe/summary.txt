@@ -1,5 +1,0 @@
-exposure=740s ramp_ok=True
-V1 turns=13 garble=0
-V1b turns=12 garble=0
-V2 turns=13 garble=0
-final run=4.0 q=6.0 used=12.0 evict=4.0 avail=0.0 mamba_usage=0.75 kv=0.75

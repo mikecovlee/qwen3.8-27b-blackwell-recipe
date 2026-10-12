@@ -11,7 +11,7 @@
 #      tokens (empirically each of 4 concurrent prompts <= ~120K); for 4-way
 #      very-long-context use the FP8 profiles.
 #   2. Occasional garbled reasoning under multi-session churn (observed in production).
-# See README "NVFP4 caveats" and evidence/stability-20261012/REPORT.md.
+# See README "NVFP4 caveats".
 #
 # Serves Qwen3.8-27B with a 262144-token context.  Default / lower-risk profile is
 # kv-fp8-text-image.yml; high-concurrency text-only is kv-fp8-text-only.yml.  Full

@@ -1,9 +1,0 @@
-=== T2 混合: 2×80K + 2×40K mx2048 (≈240K, 池92%) ===
-[T2] h1: prompt=79444 gen=2048 ttft=53.1s decode=32.7 tok/s
-[T2] h2: prompt=79444 gen=2048 ttft=27.1s decode=23.1 tok/s
-[T2] m1: prompt=39780 gen=2048 ttft=126.6s decode=31.6 tok/s
-[T2] m2: prompt=39779 gen=2048 ttft=135.4s decode=36.6 tok/s
-[T2] SUMMARY: n_ok=4/4 wall=191.4s gen_sum=8192 decode_tps_sum~124.1 | ENGINE peak_running=2 peak_queue=3 retract=0 assert=0 fatal=0
-[T2] BS-MED bs=2 med=65.8 n=103 eager=0
-GATE-T2-valid: FAIL (bs4 lines=0 eager=0 med=0.0)
-GATE-T2-safety: PASS (retract=0 assert=0 fatal=0)

@@ -237,8 +237,8 @@ and queues instead of over-committing) + pool **10** = upstream ratio 5 × mrr 2
 on the v0.5.19/20 line: dual-stream peak uses 8/10, leaving exactly the 2-slot stash
 headroom. v0.5.21 reworks this accounting and auto-sizes the host mamba pool; re-verified
 on v0.5.21 (T3 gate). Regression gate:
-`inference/tools/acceptance/verify-mamba-stash.py` (v0.5.21 evidence:
-`evidence/sglang-0521-upgrade/`; original: `evidence/mamba-stash-T3-0919/`).
+`inference/tools/acceptance/verify-mamba-stash.py` (original:
+`evidence/mamba-stash-T3-0919/`).
 
 Consequence (unchanged): an offline "reward-model scoring" loop - 60-1300-token prompts,
 generation to a 700-token cap, ~30-50 req/min - needs 10-15 streams by Little's law and
@@ -342,8 +342,7 @@ retirement table):
 Mainline runs `--chunked-prefill-size 6144` (8192 OOMs the pool) with no explicit
 mamba-GB env. The regression gate `verify-hicache-thrash.py` demands a real host load-back
 (`sglang:load_back_tokens_total{pool="kv"}`), not just a fast answer; v0.5.21 passes
-(v0.5.21 evidence in `evidence/sglang-0521-upgrade/`; original measurements in
-`evidence/hicache-mamba-fix-0917/`).
+(original measurements in `evidence/hicache-mamba-fix-0917/`).
 
 ### NVFP4 caveats
 
@@ -368,9 +367,7 @@ mamba-GB env. The regression gate `verify-hicache-thrash.py` demands a real host
   and disabling the prefill CUDA graph makes it **worse** (crashes already at 4x120K).
   **Safe envelope: keep the concurrent requests' combined matched-prefix length below
   ~262K tokens (empirically, each of 4 concurrent prompts ≤ ~120K).** For 4-way
-  *very-long-context*, use the FP8 profiles. Evidence:
-  `evidence/stability-20261012/REPORT.md` (NVFP4) and
-  `evidence/stability-20261012-fp8/REPORT.md` (FP8, crash-free control).
+  *very-long-context*, use the FP8 profiles.
 - **Occasional garbled reasoning under multi-session churn (open, observed in production)**: inside a 40-minute
   window where mrr 4 was saturated and the mamba pool pinned at `available = 0` (constant
   eviction / host reload of path states), one long agent session intermittently produced

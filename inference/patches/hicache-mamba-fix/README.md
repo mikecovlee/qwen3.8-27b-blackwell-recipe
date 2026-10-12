@@ -130,5 +130,4 @@ profile no longer sets `SGLANG_HICACHE_MAMBA_SIZE_GB`). v0.5.21 defaults to the
 Rust unified-radix core (`SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=rust`), which our
 config uses — all gates pass under it. Exported patches under
 `img-b1259f3e/patches/`; baked as `llm-infer:hicache-b1259f3e` — the mainline
-build since v0.5.21 (`kv-fp8-text-image.yml`). Evidence:
-`evidence/sglang-0521-upgrade/`.
+build since v0.5.21 (`kv-fp8-text-image.yml`).

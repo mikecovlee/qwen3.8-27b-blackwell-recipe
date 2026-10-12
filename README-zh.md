@@ -210,8 +210,7 @@ evictable 2 / available 1)。
 超额承诺)+ 池 **10** = 上游 ratio 5 × mrr 2。v0.5.19/20 线实测:双流
 峰值用 8/10,恰好留下 2 槽 stash 余量。v0.5.21 重写了这套计价并自动定容 host mamba 池,
 已于 v0.5.21 复验(T3 门禁)。回归门禁:
-`inference/tools/acceptance/verify-mamba-stash.py`(v0.5.21 证据:
-`evidence/sglang-0521-upgrade/`;原始证据:`evidence/mamba-stash-T3-0919/`)。
+`inference/tools/acceptance/verify-mamba-stash.py`(原始证据:`evidence/mamba-stash-T3-0919/`)。
 
 后果(不变):一个离线"RM 打分"循环——prompt 60~1300 token、生成顶满 700、
 30~50 req/min——按 Little 定律需要 10~15 路并发,足以把任何交互服务钉死在满 mrr,
@@ -295,8 +294,7 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
 主线跑 `--chunked-prefill-size 6144`(8192 会把池打 OOM)、不再设 mamba-GB env。回归门禁
 `verify-hicache-thrash.py` 要求出现真实 host 装载
 (`sglang:load_back_tokens_total{pool="kv"}`),而不只是"答得快";v0.5.21 已通过
-(v0.5.21 证据见 `evidence/sglang-0521-upgrade/`;原始测量见
-`evidence/hicache-mamba-fix-0917/`)。
+(原始测量见 `evidence/hicache-mamba-fix-0917/`)。
 
 ### NVFP4 注意事项
 
@@ -314,9 +312,7 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
   [X,4,256] vs [Y,4,256]`;X+Y ≈ 262080 ≈ `max_total_num_tokens`)。没有任何 CLI 参数能绕开——
   SM120 上 nvfp4 KV + flashinfer prefill 被无条件导向该 workspace(原生 NVFP4 prefill 需 SM100)——
   且关掉 prefill CUDA graph 会**更糟**(4×120K 即崩)。**安全边界:并发请求的已匹配前缀合计保持在
-  ~262K token 以下(实测 4 路各自 ≤ ~120K)。** 4 路**超长上下文**请用 FP8 档。证据:
-  `evidence/stability-20261012/REPORT.md`(NVFP4)与
-  `evidence/stability-20261012-fp8/REPORT.md`(FP8,无崩溃对照)。
+  ~262K token 以下(实测 4 路各自 ≤ ~120K)。** 4 路**超长上下文**请用 FP8 档。
 - **多会话扰动下的偶发 reasoning 乱码(未定案,生产环境实际遇到)**:在一次 40 分钟的窗口里(mrr 4 打满 +
   mamba 池钉在 `available = 0`,路径状态持续被驱逐/主机换入),一个长 agent 会话间歇性
   产出 token-soup 式乱码 reasoning,一次失控到 20000 token。26 分钟受控合成饱和复现

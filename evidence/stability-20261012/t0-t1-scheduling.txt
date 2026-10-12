@@ -1,3 +1,0 @@
-T1 latch:  A decode@158.3 A turn-done@188.7 B decode@158.3  → B BEFORE A's finish (回合长度 30s 的分辨窗)
-
-latch-log 0→0 | RESULT: PASS

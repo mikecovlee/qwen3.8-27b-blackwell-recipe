@@ -1,8 +1,0 @@
-RULER NIAH single needle, completion, depth=90%, n=1, lengths=[160000, 180000]
-   156K s0 hit=True wall=117.5s out=' 4405022.'
-   175K s0 hit=True wall=142.6s out=' 1144307.'
-
-== RULER NIAH single (accuracy) ==
-   156K  1/1
-   175K  1/1
-saved -> /home/mikecovlee/llm_service/oss/evidence/stability-20261012/ruler-niah-nearlimit.json

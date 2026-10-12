@@ -1,4 +1,0 @@
-reps=12000 tok/req=120000 total=480000 codes=[200, 200, 200, 200] wall=54.6s health_after=200
-reps=16000 tok/req=160000 total=640000 codes=[200, 200, 200, 200] wall=36.2s health_after=200
-reps=20000 tok/req=200000 total=800000 codes=[200, 200, 200, 200] wall=44.1s health_after=200
-SWEEP2 DONE

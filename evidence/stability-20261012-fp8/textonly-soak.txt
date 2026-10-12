@@ -1,3 +1,0 @@
-=== SOAK 600s: 随机 2-4 并发混合 ctx ===
-[SOAK] SUMMARY: requests=109 errors=0 worst_wall=36s(q9) | ENGINE gt_max=62.13 peak_running=4 peak_queue=3 retract=0 assert=0 fatal=0
-GATE-SOAK: PASS (errors=0 assert=0 fatal=0 retract=0)

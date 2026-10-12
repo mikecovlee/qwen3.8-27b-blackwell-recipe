@@ -1,9 +1,0 @@
-$ python3 verify-hicache-thrash.py --url http://localhost:8099/generate --container llm-infer-test
-A(244400c) cold prefill TTFT=124s
-B TTFT=34s  C TTFT=34s
-load_back kv: 191552 -> 327616 (+136064)
-D = A continuation TTFT=0.3s
-tier evidence: [2026-10-11 21:36:31] Prefill batch, #new-seq: 1, #new-token: 33, #cached-token: 203648, full token usage: 0.78, mamba usage: 0.40, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False
-retract=0 assert/exception=0
-RESULT: PASS - host-tier sub-second reload, load_back kv delta>0, zero retraction/exception
-exit=0
