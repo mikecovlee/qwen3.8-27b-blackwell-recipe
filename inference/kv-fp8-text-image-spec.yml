@@ -8,8 +8,9 @@
 #   accept length 1.73-1.93 of a max 2 (--speculative-num-draft-tokens 2)
 #   prefill @4K unchanged (5611 vs 5489 tok/s); @2K regresses 31% (TTFT 0.37 ->
 #     0.54 s) — draft extend is a fixed per-chunk cost, so short prompts pay most
-#   context 262144 -> 204519 (78%); longer inputs are rejected with HTTP 400
-#   mem-fraction 0.92 leaves 1.79 GB headroom.  0.94 yields 223678 tokens but only
+#   context 262144 -> 204800 (78%), pinned by --max-total-tokens so the pool is
+#     deterministic instead of whatever the profiler happens to return
+#   mem-fraction 0.93 leaves 1.79 GB headroom.  0.94 yields 223678 tokens but only
 #     1.18 GB, which OOM-crashed the scheduler under verify-mamba-stash.
 #   T3 mamba stash PASS, 0 restarts.  T1/T4 assume a 262144 pool, so scale their
 #     prompts here: verify-scheduling-patches.py --a-reps, verify-hicache-thrash.py
@@ -24,7 +25,8 @@
 #     BEFORE the KV pool is profiled.  Stock v0.5.21 allocates the draft's own
 #     bf16 copies (2 x 2.54 GB at vocab 248320), sizes the pool against that
 #     footprint, and frees them only later in alloc_memory_pool() — leaving 5.24 GB
-#     idle and the pool at 97068 tokens.  Patched: 223678 @0.94 / 204519 @0.92.
+#     idle and the pool at 97068 tokens.  Patched: 223678 @0.94 / 204519 @0.92 /
+#     204800 @0.93 with the --max-total-tokens cap binding (what this profile uses).
 #     Inert without --speculative-algorithm, so the other profiles are unaffected.
 # Rebuild (context = patches/):
 #   docker build -f spec-draft-share/img-b1259f3e/Dockerfile \
@@ -69,9 +71,9 @@ services:
       - --attention-backend
       - flashinfer
       - --mem-fraction-static
-      - "0.92"
+      - "0.93"
       - --max-total-tokens
-      - "262144"
+      - "204800"
       # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
       # count (kv_pool/cps).  v0.5.21's reworked mamba accounting keeps 6144
       # safe (T3/T4 validated on v0.5.21); 8192 OOMs this profile (32 GB).

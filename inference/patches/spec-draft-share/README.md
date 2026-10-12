@@ -51,7 +51,8 @@ other three profiles are unaffected.
 |---|---|---|---|
 | stock + spec | 97068 (37%) | 5.24 GB idle | — |
 | patched, frac 0.94 | 223678 (85%) | 1.18 GB | OOM-crashed under verify-mamba-stash |
-| patched, frac 0.92 | **204519 (78%)** | 1.79 GB | T3 PASS, 0 restarts |
+| patched, frac 0.92 | 204519 (78%) | 1.79 GB | T3 PASS, 0 restarts |
+| patched, frac 0.93 + `--max-total-tokens 204800` | **204800 (78%)** | 1.79 GB | profile default; the cap binds, so the pool is deterministic |
 
 decode 42.3 → 61.8–62.6 tok/s (1.47×; accept length 1.73–1.93 of a max 2),
 48.9 @64K, 43.0 @128K. Prefill @4K unchanged (5611 vs 5489 tok/s); @2K regresses
