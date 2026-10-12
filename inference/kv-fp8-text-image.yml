@@ -5,7 +5,8 @@
 # rebalancing concurrency off the KV budget:
 #   mrr 2 (not 4) + mamba pool at the upstream ratio (extra_buffer, pool 10 = 5 × mrr)
 #   + prefill CUDA graph OFF (~1.8 GB runtime headroom)
-#   + mem-fraction 0.94.
+#   + mem-fraction 0.94
+#   + mixed chunk ON (decode rides the prefill batch; worst decode gap 9.5 s -> 2.3 s).
 # The prefill graph cannot be afforded here: it costs ~1.1-1.6 GB, and with it on
 # the headroom drops to ~0.78 GB — too little for the HiCache host<->device thrash
 # (verify-hicache-thrash OOMs).  The measured prefill-latency cost of disabling it
@@ -76,6 +77,14 @@ services:
       # safe (T3/T4 validated on v0.5.21); 8192 OOMs this profile (32 GB).
       - --chunked-prefill-size
       - "6144"
+      # Mixed chunk: let running decode requests ride inside a chunked prefill
+      # batch.  Without it one long prefill freezes every concurrent decode for
+      # its whole duration (measured: a single 9.5 s inter-token gap on a
+      # 512-token stream during a 40K-token prefill; wall 12.1 s -> 22.0 s).
+      # It only trims the prefill token budget by the mixed decode tokens; row
+      # and quota accounting are unchanged, so the sched-latch anchor is
+      # unaffected (T1 re-verified with this flag on).
+      - --enable-mixed-chunk
       - --max-mamba-cache-size
       - "${MAMBA_POOL:-10}"
       - --mamba-radix-cache-strategy

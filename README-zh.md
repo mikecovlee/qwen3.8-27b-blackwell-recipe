@@ -14,8 +14,8 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 
 - 单张 32 GB 卡**常驻完整 262144 token 上下文**。
 - 并发流近线性扩展、零 retraction:默认 2 路(FP8 KV 档),NVFP4 档 4 路。
-- **FP8 KV + 视觉**为 32 GB 主线默认档(满 262144 上下文、mrr 2、prefill CUDA graph 开并
-  封顶 2048;v0.5.21 树、Rust radix 核心);**NVFP4 KV + 视觉**(**实验性**)用于 32 GB 上需要 4 路并发的场景
+- **FP8 KV + 视觉**为 32 GB 主线默认档(满 262144 上下文、mrr 2、prefill CUDA graph 关、
+  mixed chunk 开;v0.5.21 树、Rust radix 核心);**NVFP4 KV + 视觉**(**实验性**)用于 32 GB 上需要 4 路并发的场景
   (v0.5.21 树;已知偶发 reasoning 乱码,以及并发超长 prefill 崩溃——见[NVFP4 注意事项](#nvfp4-注意事项));**FP8 KV 纯文本**用于高并发
   (4 路)纯文本场景(v0.5.21 树)。
 - **分层 KV 缓存**(主机内存 L2),驱逐后重载极快。
@@ -149,6 +149,7 @@ make offline BUNDLE=/path/to/bundle
 | 图像参数 | `--mm-process-config`、`--image-processor-backend pil`、护栏 `image:128` | 同左 | 无 |
 | mrr / mamba 池 / graph bs | **2 / 10 / 2** | 4 / 16 / 4 | 4 / 16 / 4 |
 | prefill CUDA graph | 关(`--disable-prefill-cuda-graph`) | 开,封顶 4096(=cps) | 开,`--cuda-graph-max-bs-prefill 3072` |
+| mixed chunk | **开**(`--enable-mixed-chunk`) | 关 | 关 |
 | `--chunked-prefill-size` | `6144`(v0.5.21:8192 会把池打 OOM,见[调优要点](#调优要点)) | 4096(默认) | 4096(默认) |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
 | `--schedule-policy` | `hrrn`(上游 aging;waitfix 已于 09-19 退役) | `hrrn` | `hrrn` |
@@ -257,6 +258,28 @@ NVFP4 0.90 + 4096(=cps)→ 池满额 262144、图 1.53 GB、余量 ~2.37 GB。ch
 | **262144(本栈)** | 2.65 GB | ~252K | 4 x 65K |
 | 300000 | ~1.9 GB | ~180K | 4 x 75K |
 | 320000 | 1.54 GB | ~140K | 4 x 80K |
+
+### mixed chunk:让 decode 搭上 prefill 的车
+
+主线启用 `--enable-mixed-chunk`。不开时,分块 prefill 独占 GPU,所有并发 decode 请求会整段冻结。
+v0.5.21 实测(mrr 2、cps 6144,在 B 的 512 token 流开始 2 s 后注入约 40K token 的冷 prefill A):
+
+| | mixed chunk 关 | 开 |
+| --- | --- | --- |
+| B 最大 token 间隔 | **9.5 s**(一次冻结) | **2.3 s**(6 次) |
+| B 累计停顿 | ~9.5 s | ~9.5 s |
+| B wall / ITL p50 | 22.0 s / 23.3 ms | 22.0 s / 23.4 ms |
+| A prefill wall | 9.9-10.0 s | 9.9-10.1 s |
+
+收益是**流式平滑度,不是吞吐**:mixed chunk 每个 prefill step 为每个在跑的请求带 1 个 decode
+token,而一个 6144 token 的 step 约 1.5-2.3 s,所以同样的总停顿被切成逐块小卡顿,而不是一次
+9.5 s 的挂死。wall 无法改善——512 个 decode token 就是要 512 个 step。对 A 没有代价。已由
+T1/T3/T4、`concurrency-load b2/t1/t2`、600 s soak(103 请求、0 错误、0 重启)与功能正确性校验
+验证;批组成会改变 kernel 数值,因此输出并非逐 token 相同,但答案仍然正确。sched-latch 补丁
+不受影响:该 flag 只削减 prefill token 预算(`rem_input_tokens` / `rem_chunk_tokens` /
+`create_prefill_budget`),闩锁判据读取的行与配额记账完全不变。上游仅在与投机解码同用时禁止
+mixed chunk(`arg_groups/validation_hook.py`),本栈不用投机解码;`Mamba2AttnBackend` 明确支持
+prefill 与 decode 混批。
 
 ### 分层缓存
 

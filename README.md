@@ -18,7 +18,7 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 - Concurrent streams with near-linear batch scaling and zero retractions: 2 by
   default (FP8 KV profile), 4 with the NVFP4 profile.
 - **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
-  mrr 2, prefill CUDA graph on, shape-capped; v0.5.21 tree, Rust radix core); **NVFP4 KV +
+  mrr 2, prefill CUDA graph off, mixed chunk on; v0.5.21 tree, Rust radix core); **NVFP4 KV +
   vision** (*experimental*) for 4 streams on 32 GB (v0.5.21 tree; known occasional
   garbled-reasoning instability and a concurrent-long-prefill crash — see
   [NVFP4 caveats](#nvfp4-caveats)); **FP8 KV text-only** for high-concurrency (4 streams)
@@ -162,6 +162,7 @@ except the ones below (`make check` enforces this):
 | image flags | `--mm-process-config`, `--image-processor-backend pil`, guard `image:128` | same | none |
 | mrr / mamba pool / graph bs | **2 / 10 / 2** | 4 / 16 / 4 | 4 / 16 / 4 |
 | prefill CUDA graph | off (`--disable-prefill-cuda-graph`) | on, capped at 4096 (=cps) | on, `--cuda-graph-max-bs-prefill 3072` |
+| mixed chunk | **on** (`--enable-mixed-chunk`) | off | off |
 | `--chunked-prefill-size` | `6144` (v0.5.21: 8192 OOMs the pool, see Tuning) | default (`4096`) | default (`4096`) |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
 | `--schedule-policy` | `hrrn` (upstream aging; waitfix retired 09-19) | `hrrn` | `hrrn` |
@@ -299,6 +300,32 @@ headroom remain a 1:1 trade (table below measured with NVFP4 KV / mrr 4, same sh
 | **262144 (this stack)** | 2.65 GB | ~252K | 4 x 65K |
 | 300000 | ~1.9 GB | ~180K | 4 x 75K |
 | 320000 | 1.54 GB | ~140K | 4 x 80K |
+
+### Mixed chunk: decode rides the prefill batch
+
+The mainline enables `--enable-mixed-chunk`. Without it a chunked prefill owns the GPU and
+every concurrent decode request freezes for the whole prefill. Measured on v0.5.21 (mrr 2,
+cps 6144, a ~40K-token cold prefill A injected 2 s into B's 512-token stream):
+
+| | mixed chunk off | on |
+| --- | --- | --- |
+| B's worst inter-token gap | **9.5 s** (one freeze) | **2.3 s** (6 gaps) |
+| B's total stall | ~9.5 s | ~9.5 s |
+| B's wall / ITL p50 | 22.0 s / 23.3 ms | 22.0 s / 23.4 ms |
+| A's prefill wall | 9.9-10.0 s | 9.9-10.1 s |
+
+The win is **streaming smoothness, not throughput**: mixed chunk carries one decode token
+per running request per prefill step, and a 6144-token step takes ~1.5-2.3 s, so the same
+total stall is split into per-chunk hiccups instead of one 9.5 s hang. Wall clock cannot
+improve because 512 decode tokens need 512 steps. It costs A nothing. Validated by T1/T3/T4,
+`concurrency-load b2/t1/t2`, a 600 s soak (103 requests, 0 errors, 0 restarts) and a
+functional-correctness check — batch composition changes kernel numerics, so outputs are not
+bit-identical, but the answers stay correct. The sched-latch patch is unaffected: the flag
+only trims the prefill token budget (`rem_input_tokens` / `rem_chunk_tokens` /
+`create_prefill_budget`), leaving the row-and-quota accounting the latch guard reads
+unchanged. Upstream forbids mixed chunk only together with speculative decoding
+(`arg_groups/validation_hook.py`), which this stack does not use, and `Mamba2AttnBackend`
+explicitly supports mixed prefill + decode.
 
 ### Hierarchical cache
 

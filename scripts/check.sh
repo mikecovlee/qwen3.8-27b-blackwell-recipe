@@ -47,7 +47,7 @@ DROP = {"--json-model-override-args", "--prefill-attention-backend", "--decode-a
         "--image-processor-backend", "--limit-mm-data-per-request",
         "--schedule-policy", "--chunked-prefill-size"}
 # Boolean flags that exist in only one variant (no value to consume).
-DROP_BOOL = {"--disable-prefill-cuda-graph"}
+DROP_BOOL = {"--disable-prefill-cuda-graph", "--enable-mixed-chunk"}
 # Flags shared but intentionally different between variants (normalize the value).
 # mrr / mamba pool / graph bs move TOGETHER per profile (three-knob rule, see README
 # Tuning): fp8-text-image (mainline, v0.5.21 tree) runs 2/10/2 on 32 GB with the
