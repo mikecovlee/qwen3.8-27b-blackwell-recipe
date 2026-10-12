@@ -48,9 +48,10 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 | RTX PRO 6000 Blackwell | 96 GB | `kv-fp8-text-image`,并可上调并发(见[调优要点](#调优要点)) |
 
 为什么 32 GB 上 FP8 KV 现在是默认:KV 池预算 = `free − fraction slack − mm 预留 − mamba 池`,
-而 **CUDA graph 不在这个公式里**(图在池之后捕获,花的是 slack)。保留 prefill CUDA graph
-但用 `--cuda-graph-max-bs-prefill` 封顶其捕获形状(2048),并把并发改为 mrr 2 后,FP8 KV + 视觉 +
-满 262144 上下文能在 32 GB 内落地,还剩 ~0.8 GB 余量——彻底不需要 FP4 KV,且每流 decode
+而 **CUDA graph 不在这个公式里**(图在池之后捕获,花的是 slack)。在主线**关掉** prefill CUDA
+graph——~1.1 GB 的图不再与视觉 + 满 262144 池共存(开启会让 HiCache 主机↔设备重载 OOM,2026-10-12
+实测)——并把并发改为 mrr 2 后,FP8 KV + 视觉 +
+满 262144 上下文能在 32 GB 内落地,还剩 ~1.8 GB 余量——彻底不需要 FP4 KV,且每流 decode
 带宽约翻倍。主线 mamba 池为 10(E10 定容 = 上游 ratio 5 × mrr,见
 [mamba 槽计价](#mamba-槽计价为什么小的离线请求也能打满整卡));KV 池被
 `--max-total-tokens` 钉住而非被内存钉住,因此 +2 槽不损失任何上下文。需要 4 路并发的
@@ -147,13 +148,13 @@ make offline BUNDLE=/path/to/bundle
 | 视觉 | 开 | 开 | 关(`language_model_only`) |
 | 图像参数 | `--mm-process-config`、`--image-processor-backend pil`、护栏 `image:128` | 同左 | 无 |
 | mrr / mamba 池 / graph bs | **2 / 10 / 2** | 4 / 16 / 4 | 4 / 16 / 4 |
-| prefill CUDA graph | 开,`--cuda-graph-max-bs-prefill 2048` | 开,封顶 4096(=cps) | 开,`--cuda-graph-max-bs-prefill 3072` |
+| prefill CUDA graph | 关(`--disable-prefill-cuda-graph`) | 开,封顶 4096(=cps) | 开,`--cuda-graph-max-bs-prefill 3072` |
 | `--chunked-prefill-size` | `6144`(v0.5.21:8192 会把池打 OOM,见[调优要点](#调优要点)) | 4096(默认) | 4096(默认) |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
 | `--schedule-policy` | `hrrn`(上游 aging;waitfix 已于 09-19 退役) | `hrrn` | `hrrn` |
-| `--mem-fraction-static` | `0.93` | `0.90` | `0.91` |
+| `--mem-fraction-static` | `0.94` | `0.90` | `0.91` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
-| 启动后显存余量(32 GB) | ~0.77 GB | ~2.37 GB | ~0.97 GB |
+| 启动后显存余量(32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
 **怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
 代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.21 树 + 烘焙调度器/HiCache 补丁上。同一张卡需要
@@ -241,9 +242,11 @@ import 烘焙——基座自带的系统 `sitecustomize.py` 会静默遮蔽旧�
 而 **CUDA graph 捕获不在公式里**——图在池分配之后捕获,花的是 slack。因此:当池被
 `--max-total-tokens` 钉住时,改 `--mem-fraction-static` 只是重新划分 slack,池不变;
 但当**测得值(profiled)低于用户上限**时,fraction 与图开销就直接决定池大小。prefill
-CUDA graph 现已在三档全部开启,用 `--cuda-graph-max-bs-prefill` 封顶其捕获形状(超过上限
-的大 prefill 走 eager)。实测(fraction + 图形上限):主线 0.93 + 2048 → 池满额 262144、
-图 1.09 GB、余量 ~0.78 GB;纯文本 0.91 + 3072 → 池满额 262144、图 1.34 GB、余量 ~0.98 GB;
+CUDA graph 现仅在 NVFP4 与纯文本档开启(用 `--cuda-graph-max-bs-prefill` 封顶其捕获形状),
+**主线关闭**——视觉 + 满 262144 池配 `--mem-fraction-static 0.94` 时 ~1.1 GB 的图挤不出足够
+slack,开启会让 HiCache 主机↔设备重载 OOM(2026-10-12 实测),故主线保留
+`--disable-prefill-cuda-graph`。实测(fraction + 图形上限):主线 0.94、图关 → 余量 ~1.8 GB;
+纯文本 0.91 + 3072 → 池满额 262144、图 1.34 GB、余量 ~0.98 GB;
 NVFP4 0.90 + 4096(=cps)→ 池满额 262144、图 1.53 GB、余量 ~2.37 GB。chunked prefill
 是计算受限而非启动受限,故封顶后 prefill 开销影响很小。
 池与冷 prefill 余量仍是 1:1 交换(下表为 NVFP4 KV / mrr 4 时期的测量,规律相同):

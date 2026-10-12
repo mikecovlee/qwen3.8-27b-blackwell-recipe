@@ -1,0 +1,53 @@
+{
+  "length": 180000,
+  "n": 1,
+  "results": [
+    {
+      "task": "niah_single_1",
+      "sample": 0,
+      "n_values": 1,
+      "score": 1.0,
+      "out": ": 7742563.",
+      "wall": 145.5
+    },
+    {
+      "task": "niah_single_2",
+      "sample": 0,
+      "n_values": 2,
+      "score": 1.0,
+      "out": " 6396597 and 7808209.",
+      "wall": 145.2
+    },
+    {
+      "task": "niah_single_3",
+      "sample": 0,
+      "n_values": 3,
+      "score": 1.0,
+      "out": ": 5060648, 7949768, 7405048.\n\nBased on the text provided, the special magic numbers for efficient-carport are:\n\n1.  **5060648**\n2.  **7949768**\n3.  **7405048**",
+      "wall": 87.7
+    },
+    {
+      "task": "niah_multikey_1",
+      "sample": 0,
+      "n_values": 4,
+      "score": 1.0,
+      "out": ":\n\n- **wealthy-yellow**: 7121549\n- **delicious-abuse**: 8304208\n- **coherent-quality**: 7540456\n- **unsightly-birdhouse**: 5590693",
+      "wall": 87.0
+    },
+    {
+      "task": "niah_multivalue",
+      "sample": 0,
+      "n_values": 4,
+      "score": 1.0,
+      "out": ": 8335138, 6359931, 1048352, and 8504259.\n\nBased on the text provided, the special magic numbers for deranged-glucose are:\n\n1.  **8335138**\n2.  **6359931**\n3.  **1048352**\n4.  **8504259**",
+      "wall": 88.4
+    }
+  ],
+  "aggregate": {
+    "niah_single_1": 100.0,
+    "niah_single_2": 100.0,
+    "niah_single_3": 100.0,
+    "niah_multikey_1": 100.0,
+    "niah_multivalue": 100.0
+  }
+}

@@ -1,17 +1,17 @@
 # SGLang inference server — FP8 KV cache + vision. DEFAULT PROFILE.
 #
-# VALIDATED ON 32 GB (RTX PRO 4500; 2026-09-11, re-validated 09-15 & 09-19; graph
-# re-opened on v0.5.21): fits the full 262144-token pool WITH the vision tower by
+# VALIDATED ON 32 GB (RTX PRO 4500; 2026-09-11, re-validated 09-15, 09-19 & on the
+# v0.5.21 line): fits the full 262144-token pool WITH the vision tower by
 # rebalancing concurrency off the KV budget:
 #   mrr 2 (not 4) + mamba pool at the upstream ratio (extra_buffer, pool 10 = 5 × mrr)
-#   + prefill CUDA graph ON, shape-capped at 2048 tokens
-#   + mem-fraction 0.93.
-# The 6144-token chunk cannot be captured whole (needs ~1.6 GB; FP8 KV + vision +
-# full 262144 does not fit on 32 GB), so --cuda-graph-max-bs-prefill caps the
-# captured shapes and larger prefills replay eagerly.  Boot accounting: KV pool
-# 262144 tokens (capped by --max-total-tokens, not by memory); prefill graph
-# 1.09 GB, ~0.78 GB runtime headroom.  Full rationale and sizing history: README
-# "Tuning".  On 48 GB+ raise mrr 4 / pool 20 / graph 4 and raise the prefill cap.
+#   + prefill CUDA graph OFF (~1.8 GB runtime headroom)
+#   + mem-fraction 0.94.
+# The prefill graph cannot be afforded here: it costs ~1.1-1.6 GB, and with it on
+# the headroom drops to ~0.78 GB — too little for the HiCache host<->device thrash
+# (verify-hicache-thrash OOMs).  The measured prefill-latency cost of disabling it
+# is ~0-1%.  Boot accounting: KV pool 262144 tokens (capped by --max-total-tokens,
+# not by memory).  Full rationale and sizing history: README "Tuning".  On 48 GB+
+# raise mrr 4 / pool 20 / graph 4 and re-enable the prefill graph.
 # Prefer this profile over NVFP4 KV unless you need 4 streams on 32 GB.
 #
 # IMAGE (mainline since v0.5.21): llm-infer:hicache-b1259f3e = v0.5.21 base
@@ -68,7 +68,7 @@ services:
       - --attention-backend
       - flashinfer
       - --mem-fraction-static
-      - "0.93"
+      - "0.94"
       - --max-total-tokens
       - "262144"
       # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
@@ -89,11 +89,12 @@ services:
       - "2"
       - --cuda-graph-max-bs-decode
       - "2"
-      # Prefill CUDA graph ON, shape-capped: the full 6144-token chunk needs
-      # ~1.6 GB and does not fit FP8 KV + vision + full 262144 on 32 GB, so cap
-      # the captured shapes at 2048 tokens; larger prefills replay eagerly.
-      - --cuda-graph-max-bs-prefill
-      - "2048"
+      # Prefill CUDA graph OFF: the captured shapes cost ~1.1-1.6 GB, which does
+      # not fit FP8 KV + vision + full 262144 on 32 GB once the HiCache
+      # host<->device thrash needs its headroom — with the graph on, T4
+      # hicache-thrash OOMs (measured on v0.5.21: only ~0.78 GB left -> CUDA OOM).
+      # Prefill-latency cost of disabling it is ~0-1% (README "Tuning").
+      - --disable-prefill-cuda-graph
       # HRRN admission ordering (upstream aging-based policy; mainline since
       # 2026-09-19, replacing lpm + the retired sched_lpm_waitfix).
       - --schedule-policy

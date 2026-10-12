@@ -1,0 +1,15 @@
+[short:math_mul] '7006852'
+[short:math_ratio] '36'
+[short:squares] '1, 4, 9, 16, 25, 36, 49, 64, 81, 100'
+[short:logic_age] '10'
+[short:chicken_rabbit] '23'
+[short:knowledge] '8848'
+[short:translate] 'Artificial intelligence is changing the world.'
+[short:json_out] '{"name":"张三","age":30}'
+[short:code_prime] '```python\ndef is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n   '
+[short:reason_steps] '1'
+[short:long_form] '光合作用是绿色植物、藻类及某些细菌利用光能，将二氧化碳和水转化为储存能量的有机物（如葡萄糖），并释放氧气的生物化学过程。这一过程主要发生在叶绿体中，分为光反应和'
+[short:instr_fmt] 'apple|banana|cherry'
+[needle] prompt chars=104452 (~104452 tokens)
+[needle] '739128'
+saved -> evidence/stability-20261012-fp8/quality-fp8.json

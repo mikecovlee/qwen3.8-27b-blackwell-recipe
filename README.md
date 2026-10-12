@@ -54,10 +54,11 @@ cards run the same images; pick a config variant by VRAM:
 
 Why FP8 KV is the 32 GB default now: the KV pool budget is
 `free − fraction slack − mm reservation − mamba pool`, and CUDA graphs are **not** in it
-(captured afterwards, out of the slack). Keeping the prefill CUDA graph **on** — shape-capped
-via `--cuda-graph-max-bs-prefill` so its capture fits, with oversized prefill batches
-replaying eagerly — and rebalancing to mrr 2 makes FP8 KV + vision + the full
-262144 context fit in 32 GB with ~0.8 GB headroom — zero FP4 KV caveats, ~2x decode
+(captured afterwards, out of the slack). Keeping the prefill CUDA graph **off** on the
+mainline — the ~1.1 GB graph no longer fits alongside vision + the full 262144 pool
+(enabling it OOM'd the HiCache host↔device reload, observed 2026-10-12) — and rebalancing
+to mrr 2 makes FP8 KV + vision + the full
+262144 context fit in 32 GB with ~1.8 GB headroom — zero FP4 KV caveats, ~2x decode
 bandwidth per stream. The mamba pool is 10 on the mainline (upstream sizing = ratio
 5 × mrr, see [Mamba slot accounting](#mamba-slot-accounting-why-small-offline-requests-saturate-the-card-too));
 the KV pool is capped by `--max-total-tokens`, not by memory, so the +2 slots cost zero
@@ -159,13 +160,13 @@ except the ones below (`make check` enforces this):
 | vision | enabled | enabled | disabled (`language_model_only`) |
 | image flags | `--mm-process-config`, `--image-processor-backend pil`, guard `image:128` | same | none |
 | mrr / mamba pool / graph bs | **2 / 10 / 2** | 4 / 16 / 4 | 4 / 16 / 4 |
-| prefill CUDA graph | on, `--cuda-graph-max-bs-prefill 2048` | on, capped at 4096 (=cps) | on, `--cuda-graph-max-bs-prefill 3072` |
+| prefill CUDA graph | off (`--disable-prefill-cuda-graph`) | on, capped at 4096 (=cps) | on, `--cuda-graph-max-bs-prefill 3072` |
 | `--chunked-prefill-size` | `6144` (v0.5.21: 8192 OOMs the pool, see Tuning) | default (`4096`) | default (`4096`) |
 | `--mamba-radix-cache-strategy` | `extra_buffer` | `extra_buffer_lazy` | `extra_buffer_lazy` |
 | `--schedule-policy` | `hrrn` (upstream aging; waitfix retired 09-19) | `hrrn` | `hrrn` |
-| `--mem-fraction-static` | `0.93` | `0.90` | `0.91` |
+| `--mem-fraction-static` | `0.94` | `0.90` | `0.91` |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
-| free VRAM after load (32 GB) | ~0.77 GB | ~2.37 GB | ~0.97 GB |
+| free VRAM after load (32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
@@ -280,13 +281,14 @@ and **CUDA graph capture is not in that formula** - graphs are captured afterwar
 spend the `slack`. So while the pool is pinned by `--max-total-tokens`,
 `--mem-fraction-static` moves slack around but not the pool; but when the *profiled*
 value is the constraint (as with the graph on), fraction and graph cost move the pool
-directly. On v0.5.21 the prefill CUDA graph is **on in all three profiles** and
-**shape-capped** per profile via `--cuda-graph-max-bs-prefill` (mainline 2048, NVFP4 4096,
-text-only 3072) so the capture fits inside the slack while the full 262144-token pool is
-preserved; prefill chunks larger than the cap replay eagerly (measured 2026-09-11: chunked
-prefill is compute-bound, not launch-bound). Measured headroom after capture: mainline
-`0.93` -> 262144 pool, graph 1.09 GB, ~0.78 GB free; text-only `0.91` -> graph 1.34 GB,
-~0.98 GB free; NVFP4 `0.90` -> graph 1.53 GB, ~2.37 GB free. The pool and cold-prefill
+directly. On v0.5.21 the prefill CUDA graph is **on in the NVFP4 and text-only profiles**
+(shape-capped via `--cuda-graph-max-bs-prefill`: NVFP4 4096, text-only 3072) but **off on
+the mainline**: with vision + the full 262144 pool at `--mem-fraction-static 0.94`, the
+~1.1 GB graph leaves too little slack and enabling it OOM'd the HiCache host↔device reload
+(observed 2026-10-12), so the mainline keeps `--disable-prefill-cuda-graph`. Prefill chunks
+larger than a cap replay eagerly (measured 2026-09-11: chunked prefill is compute-bound, not
+launch-bound). Measured headroom after capture: mainline `0.94`, graph off, ~1.8 GB free;
+text-only `0.91` -> graph 1.34 GB, ~0.98 GB free; NVFP4 `0.90` -> graph 1.53 GB, ~2.37 GB free. The pool and cold-prefill
 headroom remain a 1:1 trade (table below measured with NVFP4 KV / mrr 4, same shape):
 
 | `max-total-tokens` | free VRAM | cold prefill | 4 concurrent |

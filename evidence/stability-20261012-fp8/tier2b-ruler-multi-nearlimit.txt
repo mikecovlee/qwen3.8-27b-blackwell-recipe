@@ -1,0 +1,14 @@
+RULER multi-needle @ 180000 tokens (completion, fixed depths), n=1, tasks=['niah_single_1', 'niah_single_2', 'niah_single_3', 'niah_multikey_1', 'niah_multivalue']
+  niah_single_1      s0 score=1.00 wall=145.5s  out=': 7742563.'
+  niah_single_2      s0 score=1.00 wall=145.2s  out=' 6396597 and 7808209.'
+  niah_single_3      s0 score=1.00 wall=87.7s  out=': 5060648, 7949768, 7405048.\n\nBased on the text provided, the special '
+  niah_multikey_1    s0 score=1.00 wall=87.0s  out=':\n\n- **wealthy-yellow**: 7121549\n- **delicious-abuse**: 8304208\n- **co'
+  niah_multivalue    s0 score=1.00 wall=88.4s  out=': 8335138, 6359931, 1048352, and 8504259.\n\nBased on the text provided,'
+
+== RULER @ 175K ==
+  niah_single_1       100.0%
+  niah_single_2       100.0%
+  niah_single_3       100.0%
+  niah_multikey_1     100.0%
+  niah_multivalue     100.0%
+saved -> evidence/stability-20261012-fp8/ruler-niah-multi-nearlimit.json

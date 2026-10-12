@@ -1,0 +1,18 @@
+T3 mamba-stash matrix — expect=safe trials=2 outdir=./mamba-stash-T3-20261012-091855
+baseline: run=0.0 q=0.0 used=0.0 evict=2.0 avail=14.0 kv=0.0
+baseline RestartCount=0
+
+-- calibrating prompts --
+  [M1] prompt 99972 tokens (target 98000, accepted)
+  [M2] prompt 99983 tokens (target 98000, accepted)
+  [L] prompt 153039 tokens (target 150000, accepted)
+
+== trial 1/2 ==
+  both decoding: {'m1_g': 41.5, 'm2_g': 77.8} run=2.0 q=0.0 used=6.0 evict=4.0 avail=6.0 kv=0.76
+  trial 1 → safe (crash-lines +0, restarts +0, min avail after admit=None)
+
+== trial 2/2 ==
+  both decoding: {'m1_g': 232.4, 'm2_g': 232.8} run=2.0 q=0.0 used=6.0 evict=1.0 avail=9.0 kv=0.76
+  trial 2 → safe (crash-lines +0, restarts +0, min avail after admit=None)
+
+RESULT: PASS (expect=safe, trials=['safe', 'safe'])

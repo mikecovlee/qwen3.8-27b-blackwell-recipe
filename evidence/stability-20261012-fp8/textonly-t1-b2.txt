@@ -1,0 +1,6 @@
+=== B2 基线: 2×48K mx2048 (并发2) ===
+[B2] s1: prompt=47773 gen=2048 ttft=24.4s decode=35.8 tok/s
+[B2] s2: prompt=47771 gen=2048 ttft=12.7s decode=29.7 tok/s
+[B2] SUMMARY: n_ok=2/2 wall=81.7s gen_sum=4096 decode_tps_sum~65.4 | ENGINE peak_running=2 peak_queue=1 retract=0 assert=0 fatal=0
+[B2] BS-MED bs=2 med=71.7 n=51 eager=0
+GATE-B2-valid: PASS (bs2 graph decode lines=51 eager=0 med=71.7)

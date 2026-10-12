@@ -1,0 +1,20 @@
+== T8a malformed JSON body ==
+ status 400 b'{"object":"error","message":"1 validation error:\\n  {\'type\': \'json_invalid\', \'loc\': (\'body\', 1), \'msg\': \'JSON decode error\', \'input\': {}, \'ctx\': {\'error\': \'unexpected character, expected a string key\'}}\\n\\n  File \\"/sgl-workspace/sglang/python/sglang/srt/entrypoints/http_server.py\\", line 1769, in o'
+ health 200
+== T8b unknown model ==
+ status 200 b'{"id":"67d69fdaeda94a5b85735da1bfb00457","object":"text_completion","created":1791765541,"model":"nonexistent-model","choices":[{"index":0,"text":" Qwen\\n\\nHello","logprobs":null,"finish_reason":"leng'
+== T8c missing prompt ==
+ status 400 b'{"object":"error","message":"1 validation error:\\n  {\'type\': \'missing\', \'loc\': (\'body\', \'prompt\'), \'msg\': \'Field required\', \'input\': {\'model\': \'qwen3.8-27b\', \'max_tokens\': 4}}\\n\\n  File \\"/sgl-workspa'
+== T8d abort mid-stream (5x) ==
+ abort#1 got 200B first_len=True
+ abort#2 got 200B first_len=True
+ abort#3 got 200B first_len=True
+ abort#4 got 200B first_len=True
+ abort#5 got 200B first_len=True
+ health after aborts 200
+== T8e streaming normal (sanity) ==
+ status 200 b'{"id":"fb92f5a4ce1b4beb92bde37b086c6830","object":"text_completion","created":1791765547,"model":"qwen3.8-27b","choices"'
+== T8f 4x64K concurrent (VRAM/pool extreme) ==
+ 4x64K wall 166.7 {1: (200, 166.0), 2: (200, 166.0), 0: (200, 166.7), 3: (200, 166.7)}
+ health 200
+== final health 200
