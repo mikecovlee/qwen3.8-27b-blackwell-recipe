@@ -101,10 +101,10 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.21
    base by digest and **builds the patched derived image** `llm-infer:hicache-b1259f3e`
    from `inference/patches/` (scheduler false-latch + HiCache hybrid-Mamba
-   patches); legacy variants: pull the old pinned image
-   (digest, with a tag fallback) — and pulls the gateway image,
+   patches); `fp8vmtp` builds `llm-infer:spec-b1259f3e` on top of it (draft-share);
+   `nvfp4` / `fp8` reuse the same derived image — and pulls the gateway image,
 3. downloads the model to `$MODELS_DIR`,
-4. generates `.env` (random `SESSION_SECRET`, `SGLANG_IMAGE` matched to the variant),
+4. generates `.env` (random `SESSION_SECRET`; each profile's image is pinned in its compose file),
 5. starts both services and waits for `/health`.
 
 Then open the gateway at `http://localhost:8088`, create a user and a token, and point
@@ -121,8 +121,9 @@ hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469
 docker build -f inference/patches/hicache-mamba-fix/img-b1259f3e/Dockerfile \
   -t llm-infer:hicache-b1259f3e inference/patches
-# legacy variants (nvfp4 / fp8 text-only) instead pull the old pinned tree:
-#   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
+# nvfp4 / fp8 text-only reuse the same derived image; fp8vmtp builds one on top:
+#   docker build -f inference/patches/spec-draft-share/img-b1259f3e/Dockerfile \
+#     -t llm-infer:spec-b1259f3e inference/patches
 docker pull calciumion/new-api:v1.0.0-rc.40
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
@@ -150,7 +151,7 @@ services and waits for health.
 
 ## Configuration variants
 
-Three self-contained compose files live in `inference/`. They share every argument
+Four self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
 | Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.21 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams) | `kv-fp8-text-only.yml` (32 GB, 4 streams) |
@@ -194,6 +195,7 @@ re-run `tools/concurrency-load.py soak`.
 make up                   # default: FP8 KV + vision, mrr 2 (32 GB)
 make up VARIANT=nvfp4     # 32 GB, FP4 KV, 4 streams
 make up VARIANT=fp8       # 32 GB, text only, 4 streams
+make up VARIANT=fp8vmtp   # opt-in 200K-context MTP spec decoding (32 GB)
 ```
 
 The installers honor the same switch (`make online|offline VARIANT=...`); `fp8v` now
@@ -211,8 +213,8 @@ must move together:
 
 - The mamba state pool caps concurrency. Mainline (v0.5.21 tree, `extra_buffer` +
   overlap schedule): upstream auto-sizes the pool at **5 × mrr** (ratio 5 = 3 base + 2
-  for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The legacy profiles (old
-  pinned tree, `extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
+  for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The nvfp4 and text-only
+  profiles (`extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
   mrr 4.
 - The CUDA-graph decode batch size must cover mrr, or larger batches silently fall back
   to eager mode (~60% slower).
@@ -222,14 +224,14 @@ must move together:
   capped at 4096 / 3072 tokens) on the same v0.5.21 tree.
 - On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
   graph 8, keeping graph ≥ mrr). The latch fix is validated at mrr 2 in production
-  (v0.5.19 line, 24 h+; re-verified on v0.5.21 by the T1 gate) and at 4 streams on the legacy tree; re-run
+  (v0.5.19 line, 24 h+; re-verified on v0.5.21 by the T1 gate) and at 4 streams on the nvfp4/text-only profiles; re-run
   `tools/concurrency-load.py` (`t1`, `soak`) before trusting higher values.
 
 ### Mamba slot accounting (why small offline requests saturate the card too)
 
 State slots are charged **per request and per radix path, not per token**: a live request
 holds 1 active + up to 2 checkpoints on its path (track interval 256, capped by
-`--mamba-max-states-per-path 2`) = 2-3 slots. On the legacy tree admission budgets 4
+`--mamba-max-states-per-path 2`) = 2-3 slots. The nvfp4/text-only profiles budget 4
 per request (measured: two streams in flight on pool 8 => used 5 / evictable 2 /
 available 1).
 
@@ -272,15 +274,15 @@ the **derived image `llm-infer:hicache-b1259f3e`** (all-in-one build from
 `inference/patches/`, also carrying the HiCache hybrid-Mamba patches below): the
 scheduler patch is baked in via a `.pth` import — the base image ships a system
 `sitecustomize.py` that silently shadows the old `PYTHONPATH=/patches` mount trick —
-and it **self-verifies its anchor at startup and fails loudly on drift**. The legacy
-profiles still pin `b91d664a` and load `img-b91d664a/sitecustomize.py` from the
-`/patches` mount (matches on line number + function name — re-check the anchor after
-any image upgrade or the hook silently no-ops; safe: it just falls back to `mrr - 1`).
+and it **self-verifies its anchor at startup and fails loudly on drift**. Every profile
+now runs this baked derived image; the older `img-b91d664a/` build and its `/patches`
+mount (matches on line number + function name) are kept only for containers created
+before the restructure — see that patch directory's README.
 
 The suppression rule: only suppress the false latch when the real number of new
 admits in a pass is below the free rows at the start of the pass — so it never
 over-admits and is safe at any `mrr`. The bug needs an in-flight chunked prefill
-(prompt longer than `chunked_prefill_size`: 2048 legacy / 6144 mainline) plus a
+(prompt longer than `chunked_prefill_size`: 4096 nvfp4/text-only / 6144 mainline) plus a
 second request arriving mid-prefill; prompts at or below the chunk size never chunk
 and are unaffected.
 
@@ -614,8 +616,9 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── inference/
 │   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
 │   │                               v0.5.21 tree, hrrn, Rust radix core, scheduler + hicache fix: cps 6144)
-│   ├── kv-nvfp4-text-image.yml     legacy: NVFP4 KV + vision (32 GB, mrr 4, old pinned tree)
-│   ├── kv-fp8-text-only.yml        legacy: FP8 KV, text only, 4 streams (old pinned tree)
+│   ├── kv-nvfp4-text-image.yml     experimental: NVFP4 KV + vision (32 GB, mrr 4)
+│   ├── kv-fp8-text-only.yml        FP8 KV, text only, 4 streams (32 GB)
+│   ├── kv-fp8-text-image-200k-mtp.yml  opt-in: mainline + MTP spec decoding (204800-token pool)
 │   ├── patches/sched-latch-fix/    scheduler false-latch patch (one build per pinned image)
 │   ├── patches/hicache-mamba-fix/  HiCache patches (write-through, alloc degrade, host pool)
 │   └── tools/acceptance/           acceptance gates (T1 latch, T3 mamba stash, T4 hicache)

@@ -90,9 +90,9 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 `make online` 调用 `scripts/online/setup.sh`,依次:检查 docker / GPU / compose →
 按变体准备 SGLang 镜像——`fp8v`(默认):按 digest 拉取钉定的 v0.5.21 基座并**构建烘焙补丁的
 派生镜像** `llm-infer:hicache-b1259f3e`(来自 `inference/patches/`:调度器假闩锁 +
-HiCache 混合 Mamba 补丁);
-legacy 变体:拉取旧钉定镜像(digest,失败回退 tag)——并拉取网关镜像 → 下载模型到
-`$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,`SGLANG_IMAGE` 与变体匹配)→
+HiCache 混合 Mamba 补丁);`fp8vmtp` 在其上再构建 `llm-infer:spec-b1259f3e`(draft-share);
+`nvfp4` / `fp8` 复用同一派生镜像——并拉取网关镜像 → 下载模型到
+`$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,各档镜像在 compose 中钉定)→
 启动服务并等待 `/health`。
 
 然后打开网关 `http://localhost:8088`,创建用户与令牌,把客户端指向它——见
@@ -109,8 +109,9 @@ hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
 docker pull lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469
 docker build -f inference/patches/hicache-mamba-fix/img-b1259f3e/Dockerfile \
   -t llm-infer:hicache-b1259f3e inference/patches
-# legacy 变体(nvfp4 / fp8 纯文本)改为拉取旧钉定树:
-#   docker pull lmsysorg/sglang@sha256:b91d664a8e4825afc16ab831c6035a6c88ac20ef8bd26da4fe2b9813a9f44376
+# nvfp4 / fp8 纯文本复用同一派生镜像;fp8vmtp 在其上再构建一层:
+#   docker build -f inference/patches/spec-draft-share/img-b1259f3e/Dockerfile \
+#     -t llm-infer:spec-b1259f3e inference/patches
 docker pull calciumion/new-api:v1.0.0-rc.40
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
@@ -206,7 +207,7 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
 
 状态槽**按请求、按 radix 路径计价,不按 token**:一条运行中的请求占 1 active +
 路径上至多 2 个 checkpoint(track 间隔 256,受 `--mamba-max-states-per-path 2` 封顶)
-= 2~3 槽。legacy 树上准入按每请求 4 槽预算(实测:池 8 上双流进行中 used 5 /
+= 2~3 槽。NVFP4 与纯文本档按每请求 4 槽预算(实测:池 8 上双流进行中 used 5 /
 evictable 2 / available 1)。
 
 主线(v0.5.19→v0.5.21)的 unified radix cache 多了一个消费者:**chunked prefill 请求的首次 stash
@@ -237,12 +238,12 @@ evictable 2 / available 1)。
 README)。主线档钉定**派生镜像 `llm-infer:hicache-b1259f3e`**(一体构建自
 `inference/patches/`:本补丁 + 下节的 HiCache 混合 Mamba 补丁):调度器补丁经 `.pth`
 import 烘焙——基座自带的系统 `sitecustomize.py` 会静默遮蔽旧的 `PYTHONPATH=/patches`
-挂载法——且**启动时自检锚点、漂移即响亮报错**。legacy 档仍钉定 `b91d664a`,经
-`/patches` 挂载加载 `img-b91d664a/sitecustomize.py`(按行号 + 函数名匹配——镜像升级后
-必须复核锚点,否则钩子静默失效;安全:退化为 `mrr - 1`)。
+挂载法——且**启动时自检锚点、漂移即响亮报错**。所有档现均运行该烘焙派生镜像;较早的
+`img-b91d664a/` 构建及其 `/patches` 挂载(按行号 + 函数名匹配)仅为 restructure 之前
+创建的容器保留——见该补丁目录的 README。
 
 抑制规则:只在「本 pass 真正的新准入数 < pass 起始空闲行数」时抑制假闩锁——绝不会
-过度准入,任何 `mrr` 下都安全。触发条件:存在超过 `chunked_prefill_size`(2048 legacy /
+过度准入,任何 `mrr` 下都安全。触发条件:存在超过 `chunked_prefill_size`(4096 nvfp4/纯文本 /
 6144 主线)的分块 prefill,且第二路请求在其进行中到达;不超过分块尺寸的 prompt 不受影响。
 
 ### 上下文池预算与 prefill CUDA graph
@@ -533,8 +534,9 @@ make check     # compose 一致性 + 机密扫描
 ├── inference/
 │   ├── kv-fp8-text-image.yml       主线默认:FP8 KV + 视觉(32 GB,mrr 2,
 │   │                               v0.5.21 树、hrrn、Rust radix 核心、调度器 + hicache 修复:cps 6144)
-│   ├── kv-nvfp4-text-image.yml     legacy:NVFP4 KV + 视觉(32 GB,mrr 4,旧钉定树)
-│   ├── kv-fp8-text-only.yml        legacy:FP8 KV,纯文本,4 路(旧钉定树)
+│   ├── kv-nvfp4-text-image.yml     实验: NVFP4 KV + 视觉(32 GB,mrr 4)
+│   ├── kv-fp8-text-only.yml        FP8 KV,纯文本,4 路(32 GB)
+│   ├── kv-fp8-text-image-200k-mtp.yml  可选:主线 + MTP 投机解码(204800 token 池)
 │   ├── patches/sched-latch-fix/    调度器假闩锁补丁(按钉定镜像一构建一目录)
 │   ├── patches/hicache-mamba-fix/  HiCache 补丁(写通、分配降级、host 池定容)
 │   └── tools/acceptance/           验收门禁(T1 闩锁、T3 mamba stash、T4 hicache)
