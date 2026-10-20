@@ -102,9 +102,9 @@ to a newer tree. Procedure:
 |---|---|
 | P1 | **RETIRED since v0.5.21**: v0.5.21 (b1259f3e) absorbed it upstream — a first-class chunked-prefill stash + `flush_pending_backups()` backup pipeline supersedes our write-through hunk; the img-b1259f3e build carries no `unified_radix_cache.py` patch and T4 passes without it |
 | P2 | **RETIRED 2026-09-19**: v0.5.20 (06e4f2ed) absorbed it upstream as `Req.host_loaded_length` + `materialized_host_hit_len()`; the img-06e4f2ed build carries no P2 files |
-| P3 | #36770 lands (still open as of v0.5.21; assert re-confirmed at components/mamba.py:509 on b1259f3e) |
-| C | **obsolete on v0.5.21**: the ratio-derived/auto-sized host mamba pool is sufficient (T3/T4 green without the env). Kept baked-but-dormant as a zero-cost fallback; re-check if auto-size behavior regresses (watch #38644) |
-| sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
+| P3 | #36770 lands (still open as of v0.5.22; re-applied with offsets on img-e3a4f060, build self-check green 2026-10-20) |
+| C | **REQUIRED on v0.5.22**: v0.5.22's write-through backs up ~101 mamba checkpoints for the T4 workload (10 on v0.5.21), which overflows the default 1.65 GB host pool (~20 slots); the LRU drops session states and a host hit becomes a full replay (T4 REPLAY 125 s). `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (~106 slots) restores T4 PASS (0.5 s, load_back +137344), matching v0.5.21. Keep until upstream reworks the host mamba pool sizing; re-check on each bump |
+| sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19; re-checked on v0.5.22 tree baa9bef: **still unfixed** — the gate is unchanged at scheduler.py:4098-4103, v0.5.22 only adds the #41841/#41872 empty-batch latch fix; re-anchored in img-e3a4f060, T1 pending). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
 
 ## v0.5.20 build (img-06e4f2ed, tree 94602c9)
 
@@ -131,3 +131,28 @@ Rust unified-radix core (`SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=rust`), which o
 config uses — all gates pass under it. Exported patches under
 `img-b1259f3e/patches/`; baked as `llm-infer:hicache-b1259f3e` — the mainline
 build since v0.5.21 (`kv-fp8-text-image.yml`).
+
+## v0.5.22 build (img-e3a4f060, tree baa9bef)
+
+Re-anchored onto the v0.5.22 line (index digest
+`sha256:e3a4f060…`, built 2026-10-19): still 4 files. P3 re-applied with line
+offsets (upstream #36770 still open). `[C]` re-anchored because
+`hybrid_pool_assembler.py` restructured the host-size split into an
+`if get_memory().hicache_size > 0:` block with a QSA kv re-scale step — the
+override now sits right after that block in both `build_hybrid_mamba_stack`
+and `build_hybrid_mamba_swa_stack` (and the `envs` import moved up with the
+reordered import block); still dormant unless
+`SGLANG_HICACHE_MAMBA_SIZE_GB` is set. P1 stays retired (the chunked-prefill
+stash + `flush_pending_backups()` pipeline is still first-class upstream; the
+Rust TreeCore still has no `node_by_id()`). Exported patches under
+`img-e3a4f060/patches/`; all-in-one baked as `llm-infer:hicache-e3a4f060`
+(build self-check green 2026-10-20). Acceptance on the isolated twin: **T1 PASS**
+(latch-log 0→3), **T3 PASS** (`--expect safe`, 2/2), **T4 PASS** with
+`SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (D 0.5 s, load_back +137344). Without the env
+T4 REPLAYs on plain v0.5.22 too: v0.5.22's write-through backs up ~101 mamba
+checkpoints (vs 10 on v0.5.21), overflowing the default 1.65 GB host mamba pool
+(~20 slots), so the LRU drops the session states and the host tier becomes
+unmatchable. The knob is now active in `kv-fp8-text-image.yml`. Evidence and
+ruled-out causes: `../../evidence/hicache-v0522-regression-1020/`. The profile
+switched to e3a4f060 on 2026-10-20; the spec/200k-mtp profile stays on b1259f3e
+pending the same validation.

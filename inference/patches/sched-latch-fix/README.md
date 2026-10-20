@@ -5,7 +5,7 @@
 ```
 img-<first8-of-image-digest>/   one directory per serve-image digest
   ├─ sitecustomize.py           mount-based build (must keep this exact filename)   → img-b91d664a
-  └─ sched_latch_fix.py         baked build (free name, loaded via .pth)            → img-06e4f2ed, img-b1259f3e
+  └─ sched_latch_fix.py         baked build (free name, loaded via .pth)            → img-06e4f2ed, img-b1259f3e, img-e3a4f060
      Dockerfile                  derived-image recipe (baked builds only)
 ```
 
@@ -20,6 +20,7 @@ starvation mitigation. The module and its T2 acceptance test live on in git hist
 | `lmsysorg/sglang@sha256:d6e72886…` (tree `0bcd822`, v0.5.19, 2026-09-04) | *(build dir removed 2026-09-19 — git history)* | was: derived image, module + waitfix + `99-sched-latch-fix.pth`; anchor scheduler.py:3661 |
 | `lmsysorg/sglang@sha256:06e4f2ed…` (tree `94602c9`, v0.5.20, 2026-09-18) | `img-06e4f2ed/` | same bake, anchor re-verified at scheduler.py:3887 (double-count gate gained `candidate_beam_width`; shape unchanged). **`sched_lpm_waitfix` NOT baked (retired 2026-09-19)**: upstream `--schedule-policy hrrn` accepted as the starvation mitigation |
 | `lmsysorg/sglang@sha256:b1259f3e…` (tree `e00930c`, v0.5.21) | `img-b1259f3e/` | same bake, anchor re-verified at scheduler.py:3976 (the gate now also subtracts `beam_coordinator.pending_member_rows`; shape unchanged). **Mainline build since v0.5.21** |
+| `lmsysorg/sglang@sha256:e3a4f060…` (tree `baa9bef`, v0.5.22, 2026-10-19) | `img-e3a4f060/` | same bake, anchor re-verified at scheduler.py:4103. **Double counting NOT fixed by v0.5.22** (release only adds the #41841/#41872 empty-batch latch fix at the NO_TOKEN branch and a pre-loop `allocatable<=0 and chunked_req is None` guard; the gate at :4098-:4103 is unchanged). 2026-10-20 acceptance: **T1 PASS** (latch-log 0→3), **T3 PASS** (safe, 2/2), **T4 PASS with `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5`** (0.5 s host reload; without the env v0.5.22 replays — host mamba pool overflow, see `../../evidence/hicache-v0522-regression-1020/`). **Mainline since 2026-10-20** (`kv-fp8-text-image.yml`) |
 
 Transitional copy note: the repo-root `sitecustomize.py` is a byte-identical copy of the
 b91d664a build so that containers created before this restructure (they bind-mount the
@@ -28,9 +29,10 @@ recreates them against `img-b91d664a/`. Safe to delete once no pre-restructure c
 is in use; never edit it in place — the `img-*` dirs are canonical.
 
 Each build pins its anchor in `scheduler.py`: b91d664a → line 3355, 06e4f2ed → line
-3887, b1259f3e → line 3976 (all the `running_batch.batch_is_full = True` assignment
+3887, b1259f3e → line 3976, e3a4f060 → line 4103 (all the `running_batch.batch_is_full = True` assignment
 behind the `len(adder.can_run_list) >= get_num_allocatable_reqs(...)` check; the
-removed d6e72886 build used 3661).
+removed d6e72886 build used 3661; the v0.5.22 tree has two other same-statement
+lines — 4002 pre-loop guard and 4108 PD mode — neither is the anchor).
 
 ⚠ Why the two load differently: the `latest` base ships Ubuntu's
 `/usr/lib/python3.12/sitecustomize.py` (apport hook), which satisfies Python's startup
