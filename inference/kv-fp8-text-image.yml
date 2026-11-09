@@ -15,32 +15,37 @@
 # raise mrr 4 / pool 20 / graph 4 and re-enable the prefill graph.
 # Prefer this profile over NVFP4 KV unless you need 4 streams on 32 GB.
 #
-# IMAGE (mainline since 2026-10-20): llm-infer:hicache-e3a4f060 = v0.5.22 base
-# (digest e3a4f060, tree baa9bef) with patches baked from inference/patches/:
-#   sched_latch_fix  — false-latch double count (anchor scheduler.py:4103,
-#                      self-verifying at startup; upstream still unfixed)
-#   hicache P3       — mamba alloc degrade (skip + count instead of assert)
+# IMAGE (mainline since 2026-11-09): llm-infer:hicache-f832b5c3 = v0.5.23 base
+# (digest f832b5c3, tree 297e54f) with patches baked from inference/patches/:
+#   hicache P3       — mamba alloc degrade (skip + count instead of assert),
+#                      ported onto v0.5.23's _alloc_mamba_slot(req) signature
+#                      (upstream #36770 still open)
 #   hicache C        — SGLANG_HICACHE_MAMBA_SIZE_GB host-mamba-pool sizing;
-#                      ACTIVE on v0.5.22 at 8.5 GB (see environment below).
-# Retired here: P1 chunked write-through (absorbed upstream: chunked-prefill
-# stash + flush_pending_backups), P2 honest host-hit (absorbed in v0.5.20), and
-# the LPM waitfix + its envs (replaced by --schedule-policy hrrn below).
-# v0.5.22 runs the unified radix tree on the Rust core by default.
+#                      STILL REQUIRED on v0.5.23 at 8.5 GB (2026-11-09 T4
+#                      re-check: without it D replays 125 s, see environment).
+# Retired here: sched_latch_fix (upstream #44401 fixed the false-latch double
+# count in v0.5.23 — get_num_allocatable_reqs now credits num_held_rows),
+# P1 chunked write-through (absorbed upstream: chunked-prefill stash +
+# flush_pending_backups), P2 honest host-hit (absorbed in v0.5.20), and the
+# LPM waitfix + its envs (replaced by --schedule-policy hrrn below).
+# v0.5.23 runs the unified radix tree on the Rust core by default.
 # Rebuild (context = patches/):
-#   docker build -f hicache-mamba-fix/img-e3a4f060/Dockerfile \
-#     -t llm-infer:hicache-e3a4f060 .
-# Acceptance gates (tools/acceptance/): T1 latch, T3 mamba stash (--expect safe),
-# T4 hicache thrash — all PASS on this build + env (2026-10-20, ../../evidence/).
-# The 8.5 GB host mamba pool is load-bearing: v0.5.22's write-through backs up
-# ~101 mamba checkpoints for this workload (10 on v0.5.21), which overflows the
-# default 1.65 GB pool (~20 slots); the LRU then drops session states and a host
-# hit becomes a full replay (T4 REPLAY 125 s -> PASS 0.5 s at 8.5 GB).
+#   docker build -f hicache-mamba-fix/img-f832b5c3/Dockerfile \
+#     -t llm-infer:hicache-f832b5c3 .
+# Acceptance gates (tools/acceptance/): T1 latch (no module; B starts at A's
+# prefill end), T3 mamba stash (--expect safe 2/2), T4 hicache thrash —
+# all PASS on this build + env (2026-11-09).
+# The 8.5 GB host mamba pool is load-bearing: the write-through working set
+# (~101 mamba checkpoints on the v0.5.22+ write path vs 10 on v0.5.21)
+# overflows the default 1.65 GB pool (~20 slots); the LRU then drops session
+# states and a host hit becomes a full replay (T4 REPLAY 125 s -> PASS 0.4 s
+# at 8.5 GB, re-confirmed on v0.5.23).
 # The image is hardcoded: a stale ${SGLANG_IMAGE} .env pin once silently broke
 # reconciliation.  MAMBA_STRATEGY / MAMBA_POOL envs still drive the A/B arms of
 # verify-mamba-stash.py.  History: git log of this file.
 services:
   sglang:
-    image: llm-infer:hicache-e3a4f060
+    image: llm-infer:hicache-f832b5c3
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"

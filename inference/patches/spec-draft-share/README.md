@@ -89,3 +89,23 @@ syntax parse).
 Retire when upstream profiles the KV pool *after* the draft shares the target's
 embed/lm_head — i.e. when `init_lm_head()` moves out of `alloc_memory_pool()`, or
 the draft stops allocating weights it is about to discard.
+
+## v0.5.23 build (img-f832b5c3, tree 297e54f)
+
+Re-anchored onto the v0.5.23 line (index digest `sha256:f832b5c3…`, built
+2026-11-09): the two-line anchor (`get_plan_stream` +
+`def alloc_memory_pool(`, eagle_worker_v2.py:241-243) still applies with a +17
+offset and stays unique (the other `get_plan_stream` at :1363 is followed by
+`last_shared_read_runner`). `init_token_map()`/`init_lm_head()` are still called
+only from `alloc_memory_pool()` (:257-258), so the retirement condition is not
+met. v0.5.23 adds a `set_lm_head_from_target` share path
+(`qwen3_5_mtp.py:182`), but it does not change the allocate-then-discard
+ordering, so the patch remains effective. Built chained on
+`llm-infer:hicache-f832b5c3` as `llm-infer:spec-f832b5c3` (self-check green
+2026-11-09). Acceptance on the isolated twin (2026-11-09, scaled per §4):
+**T1 PASS** (B@75.8 = A prefill end), **T3 PASS** (safe, 2/2),
+**T4 PASS** both with and without `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5`
+(D 0.4 s, load_back +89536; the scaled gate fits either way — the env is
+kept in the mtp profile for full-context safety, see the default profile's
+A/B in `../../evidence/sglang-0523-upgrade-1109/`). The profile switched to
+spec-f832b5c3 on 2026-11-09.

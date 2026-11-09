@@ -102,9 +102,9 @@ to a newer tree. Procedure:
 |---|---|
 | P1 | **RETIRED since v0.5.21**: v0.5.21 (b1259f3e) absorbed it upstream — a first-class chunked-prefill stash + `flush_pending_backups()` backup pipeline supersedes our write-through hunk; the img-b1259f3e build carries no `unified_radix_cache.py` patch and T4 passes without it |
 | P2 | **RETIRED 2026-09-19**: v0.5.20 (06e4f2ed) absorbed it upstream as `Req.host_loaded_length` + `materialized_host_hit_len()`; the img-06e4f2ed build carries no P2 files |
-| P3 | #36770 lands (still open as of v0.5.22; re-applied with offsets on img-e3a4f060, build self-check green 2026-10-20) |
-| C | **REQUIRED on v0.5.22**: v0.5.22's write-through backs up ~101 mamba checkpoints for the T4 workload (10 on v0.5.21), which overflows the default 1.65 GB host pool (~20 slots); the LRU drops session states and a host hit becomes a full replay (T4 REPLAY 125 s). `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (~106 slots) restores T4 PASS (0.5 s, load_back +137344), matching v0.5.21. Keep until upstream reworks the host mamba pool sizing; re-check on each bump |
-| sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19; re-checked on v0.5.22 tree baa9bef: **still unfixed** — the gate is unchanged at scheduler.py:4098-4103, v0.5.22 only adds the #41841/#41872 empty-batch latch fix; re-anchored in img-e3a4f060, T1 pending). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
+| P3 | #36770 lands (still open as of v0.5.23; ported onto the new `_alloc_mamba_slot(req)` signature on img-f832b5c3, build self-check green 2026-11-09) |
+| C | **REQUIRED on v0.5.22 and v0.5.23**: v0.5.22's write-through backs up ~101 mamba checkpoints for the T4 workload (10 on v0.5.21), which overflows the default 1.65 GB host pool (~20 slots); the LRU drops session states and a host hit becomes a full replay (T4 REPLAY 125 s). `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (~106 slots) restores T4 PASS (0.5 s, load_back +137344), matching v0.5.21. **T4 re-check 2026-11-09 on v0.5.23: still REQUIRED** (without the env D replays 125 s, load_back +0; #42701/#44800 did not shrink the working set). Keep until upstream reworks the host mamba pool sizing; re-check on each bump |
+| sched-latch modules | **RETIRED since v0.5.23**: upstream PR #44401 ("Count a request's held req_to_token row once at admission", merged 2026-10-15) fixed the double counting — `get_num_allocatable_reqs` adds `num_held_rows` back to the pool term; the gate shape changed so the monkeypatch anchor self-check would refuse to install anyway. The img-f832b5c3 build bakes NO sched-latch module. LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
 
 ## v0.5.20 build (img-06e4f2ed, tree 94602c9)
 
@@ -156,3 +156,30 @@ unmatchable. The knob is now active in `kv-fp8-text-image.yml`. Evidence and
 ruled-out causes: `../../evidence/hicache-v0522-regression-1020/`. The profile
 switched to e3a4f060 on 2026-10-20; the spec/200k-mtp profile stays on b1259f3e
 pending the same validation.
+
+## v0.5.23 build (img-f832b5c3, tree 297e54f)
+
+Re-anchored onto the v0.5.23 line (index digest
+`sha256:f832b5c3…`, built 2026-11-09): still 4 files, but **P3 was ported, not
+re-anchored** — `_alloc_mamba_slot` gained a `req` parameter and a lazy
+extra-buffer lock-release step in v0.5.23, so the hunk was rewritten to merge
+the `_try_alloc_mamba_slot()` None-skip semantics into the new signature (the
+three donate-path callers now pass `req` and return 0 on failure; the
+external-linker LOAD path at `mamba.py:807` keeps the fatal
+`_alloc_mamba_slot()`). `[C]` re-applied with offsets (+76/+83); `_split_hicache_size`
+now prefers `host_capacity_bytes` but the override insertion points are
+unchanged. **sched-latch-fix is NOT baked into this build**: upstream PR
+**#44401** ("Count a request's held req_to_token row once at admission",
+merged 2026-10-15, in v0.5.23) fixed the double counting —
+`get_num_allocatable_reqs` now adds `num_held_rows` back to the pool term at
+the main gate (`scheduler.py:4225-4232`) and the dLLM gate; the PD-prefill gate
+that #44401 also fixed was later refactored out of `_get_new_batch_prefill_raw`
+entirely. Exported patches under `img-f832b5c3/patches/`; all-in-one baked as
+`llm-infer:hicache-f832b5c3` (build self-check green 2026-11-09). Acceptance on
+the isolated twin (2026-11-09): **T1 PASS** (B@168.5 = A prefill end,
+latch-log 0→0 — the false-latch no longer occurs with no module loaded),
+**T3 PASS** (safe, 2/2), **T4 PASS** with `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5`
+(D 0.4 s, load_back +137344); **without the env T4 REPLAYs** (D 124.5 s,
+load_back +0) — the C knob is STILL REQUIRED on v0.5.23 (v0.5.23's
+#42701/#44800 write-ordering fixes did not change the checkpoint working
+set). Evidence: `../../evidence/sglang-0523-upgrade-1109/`.

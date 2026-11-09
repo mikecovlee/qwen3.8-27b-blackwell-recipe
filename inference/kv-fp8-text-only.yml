@@ -8,14 +8,17 @@
 # otherwise prefer the default kv-fp8-text-image.yml.
 # Full parameter rationale: see the "Tuning" section of the README.
 #
-# IMAGE (v0.5.21): llm-infer:hicache-b1259f3e = v0.5.21 base (digest b1259f3e,
-# tree e00930c) with the sched-latch + HiCache patches baked in (see
-# inference/patches/).  This variant keeps 4 streams (mrr 4 / pool 16 / graph 4)
-# and the extra_buffer_lazy strategy; see README "Tuning".  Rebuild command:
-# README "The scheduler false-latch patch".
+# IMAGE (since 2026-11-09): llm-infer:hicache-f832b5c3 = v0.5.23 base (digest
+# f832b5c3, tree 297e54f) with the HiCache patches baked in (see
+# inference/patches/; sched-latch retired — upstream #44401).  This variant
+# keeps 4 streams (mrr 4 / pool 16 / graph 4) and the extra_buffer_lazy
+# strategy; see README "Tuning".  Rebuild command:
+#   docker build -f hicache-mamba-fix/img-f832b5c3/Dockerfile -t llm-infer:hicache-f832b5c3 oss/inference/patches
+# 2026-11-09 acceptance (isolated twin, scaled T1/T3/T4): T1 PASS, T3 PASS
+# (safe 2/2), T4 REPLAY without SGLANG_HICACHE_MAMBA_SIZE_GB / PASS with 8.5.
 services:
   sglang:
-    image: llm-infer:hicache-b1259f3e
+    image: llm-infer:hicache-f832b5c3
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -27,6 +30,10 @@ services:
       - MAX_JOBS=4
       - PYTHONUNBUFFERED=1
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Host mamba pool sizing (hicache C knob), inherited from the default
+      # profile: REQUIRED on the v0.5.22+ write path (T4 REPLAY without it,
+      # PASS at 8.5 GB — 2026-11-09 A/B on v0.5.23).
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=8.5
     shm_size: 8g
     restart: unless-stopped
     deploy:

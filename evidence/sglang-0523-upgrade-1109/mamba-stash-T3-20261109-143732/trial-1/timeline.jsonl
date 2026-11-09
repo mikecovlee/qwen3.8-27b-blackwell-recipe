@@ -1,0 +1,2 @@
+{"t": 237.6, "running": 2.0, "queue": 1.0, "mamba_avail": 9.0, "mamba_used": 7.0, "mamba_evict": 0.0, "kv": 0.76}
+{"t": 239.6, "running": 1.0, "queue": 0.0, "mamba_avail": 12.0, "mamba_used": 3.0, "mamba_evict": 1.0, "kv": 0.38}

@@ -17,14 +17,22 @@
 # kv-fp8-text-image.yml; high-concurrency text-only is kv-fp8-text-only.yml.  Full
 # parameter rationale: see the "Tuning" section of the README.
 #
-# IMAGE (v0.5.21): llm-infer:hicache-b1259f3e = v0.5.21 base (digest b1259f3e,
-# tree e00930c) with the sched-latch + HiCache patches baked in (see
-# inference/patches/).  This variant keeps 4 streams (mrr 4 / pool 16 / graph 4),
-# the extra_buffer_lazy strategy and the NVFP4 KV + vision stack; see README
-# "Tuning".  Rebuild command: README "The scheduler false-latch patch".
+# IMAGE (since 2026-11-09): llm-infer:nvfp4-f832b5c3 = llm-infer:hicache-f832b5c3
+# (v0.5.23 base, digest f832b5c3, tree 297e54f; sched-latch retired — upstream
+# #44401) plus the HiCache patches and ONE more patch set baked in, from
+# inference/patches/nvfp4-host-transport/:
+#   nvfp4-host-transport — port of upstream PR #46452 (open on main): NVFP4
+#   host transfers now carry the FP4 payload AND its per-block scales.
+#   Required on v0.5.23: its MHA host pool rejects the TOKEN scale layout at
+#   startup; on v0.5.21 the same path SILENTLY DROPPED the scales on
+#   write-back/load-back (upstream #43239/#36121 silent-corruption bug).
+#   Rebuild: docker build -f nvfp4-host-transport/img-f832b5c3/Dockerfile \
+#     -t llm-infer:nvfp4-f832b5c3 oss/inference/patches
+# 2026-11-09 acceptance (isolated twin): T1 PASS, T3 PASS (safe 2/2),
+# T4 REPLAY without SGLANG_HICACHE_MAMBA_SIZE_GB / PASS (D 0.3 s) with 8.5.
 services:
   sglang:
-    image: llm-infer:hicache-b1259f3e
+    image: llm-infer:nvfp4-f832b5c3
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -37,6 +45,10 @@ services:
       - PYTHONUNBUFFERED=1
       # Required by NVFP4 prefill activation on 32 GB.
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Host mamba pool sizing (hicache C knob), same as the default profile:
+      # REQUIRED on the v0.5.22+ write path (T4 REPLAY without it, PASS at
+      # 8.5 GB — 2026-11-09 A/B on v0.5.23).
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=8.5
     shm_size: 8g
     restart: unless-stopped
     deploy:

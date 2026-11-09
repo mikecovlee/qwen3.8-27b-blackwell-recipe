@@ -1,0 +1,7 @@
+A(244400c) cold prefill TTFT=120s
+B TTFT=33s  C TTFT=33s
+load_back kv: 280832 -> 280832 (+0)
+D = A 的续传 TTFT=119.6s
+tier 证据: [2026-11-09 13:58:47] Prefill batch, #new-seq: 1, #new-token: 2977, #cached-token: 0, full token usage: 0.78, mamba usage: 0.25, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph
+retract=0 assert/exception=0
+RESULT: REPLAY — 走了全量重放(120s):mamba/KV 错位或 host 层未覆盖,立案调查

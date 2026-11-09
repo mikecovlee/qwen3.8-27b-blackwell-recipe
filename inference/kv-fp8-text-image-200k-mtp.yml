@@ -18,8 +18,9 @@
 # Everything else (mrr 2, mamba pool 10 extra_buffer, prefill graph OFF, mixed
 # chunk ON, hrrn, HiCache ratio 2, vision limits) is inherited from the default.
 #
-# IMAGE: llm-infer:spec-b1259f3e = llm-infer:hicache-b1259f3e (v0.5.21 base
-# digest b1259f3e, tree e00930c, + sched_latch_fix + hicache P3) with ONE more
+# IMAGE (since 2026-11-09): llm-infer:spec-f832b5c3 = llm-infer:hicache-f832b5c3
+# (v0.5.23 base digest f832b5c3, tree 297e54f, + hicache P3/C; sched_latch_fix
+# retired — upstream #44401 fixed the false-latch double count) with ONE more
 # patch baked, from inference/patches/spec-draft-share/:
 #   draft-share — share the target's embed_tokens + lm_head with the MTP draft
 #     BEFORE the KV pool is profiled.  Stock v0.5.21 allocates the draft's own
@@ -29,8 +30,8 @@
 #     204800 @0.93 with the --max-total-tokens cap binding (what this profile uses).
 #     Inert without --speculative-algorithm, so the other profiles are unaffected.
 # Rebuild (context = patches/):
-#   docker build -f spec-draft-share/img-b1259f3e/Dockerfile \
-#     -t llm-infer:spec-b1259f3e .
+#   docker build -f spec-draft-share/img-f832b5c3/Dockerfile \
+#     -t llm-infer:spec-f832b5c3 .
 # NEXTN resolves to EAGLE internally, which supports mixed chunk, so
 # --enable-mixed-chunk stays on.  The draft is the checkpoint's own 1-layer MTP
 # module (mtp.* tensors, left unquantized by the modelopt recipe).
@@ -38,7 +39,7 @@
 # in-checkpoint-draft whitelist does not include Qwen3_5ForConditionalGeneration.
 services:
   sglang:
-    image: llm-infer:spec-b1259f3e
+    image: llm-infer:spec-f832b5c3
     container_name: llm-infer
     ports:
       - "${SGLANG_PORT:-8080}:8080"
@@ -51,6 +52,12 @@ services:
       - PYTHONUNBUFFERED=1
       # Reduce fragmentation pressure under the tight runtime headroom.
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Host mamba pool sizing (hicache C knob), inherited from the default
+      # profile. Kept for full-context safety: the scaled T4 gate fits the
+      # default pool either way (2026-11-09 A/B), but full 204800 context runs
+      # 33 chunk anchors (204800/6144) past the ~20-slot default host pool,
+      # and the default profile's full-size A/B REPLAYs without the env.
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=8.5
     shm_size: 8g
     restart: unless-stopped
     deploy:
