@@ -46,10 +46,11 @@ if [[ ! -f .env ]]; then
   sed -i "s#^SESSION_SECRET=.*#SESSION_SECRET=${secret}#" .env
   sed -i "s#^MODELS_DIR=.*#MODELS_DIR=${HOME}/models#" .env
 fi
-expected_image="llm-infer:hicache-b1259f3e"
-if [[ "$VARIANT" == "fp8vmtp" ]]; then
-  expected_image="llm-infer:spec-b1259f3e"
-fi
+expected_image="llm-infer:hicache-f832b5c3"
+case "$VARIANT" in
+  nvfp4)   expected_image="llm-infer:nvfp4-f832b5c3" ;;
+  fp8vmtp) expected_image="llm-infer:spec-f832b5c3" ;;
+esac
 if grep -q '^SGLANG_IMAGE=' .env; then
   sed -i "s#^SGLANG_IMAGE=.*#SGLANG_IMAGE=${expected_image}#" .env
 else

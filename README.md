@@ -18,11 +18,11 @@ compose files are deliberately short; the *why* lives in [Tuning](#tuning) and
 - Concurrent streams with near-linear batch scaling and zero retractions: 2 by
   default (FP8 KV profile), 4 with the NVFP4 profile.
 - **FP8 KV cache + vision** as the 32 GB mainline default (full 262144-token context,
-  mrr 2, prefill CUDA graph off, mixed chunk on; v0.5.22 tree, Rust radix core); **NVFP4 KV +
-  vision** (*experimental*) for 4 streams on 32 GB (v0.5.21 tree; known occasional
+  mrr 2, prefill CUDA graph off, mixed chunk on; v0.5.23 tree, Rust radix core); **NVFP4 KV +
+  vision** (*experimental*) for 4 streams on 32 GB (v0.5.23 tree; known occasional
   garbled-reasoning instability and a concurrent-long-prefill crash — see
   [NVFP4 caveats](#nvfp4-caveats)); **FP8 KV text-only** for high-concurrency (4 streams)
-  text-only serving (v0.5.21 tree).
+  text-only serving (v0.5.23 tree).
 - **Hierarchical KV cache** (host-RAM L2) with fast re-admission after eviction.
 - **Gateway**: per-user keys, 3-tier cache-aware pricing, automatic failover to a
   secondary upstream.
@@ -65,8 +65,8 @@ bandwidth per stream. The mamba pool is 10 on the mainline (upstream sizing = ra
 the KV pool is capped by `--max-total-tokens`, not by memory, so the +2 slots cost zero
 context. `kv-nvfp4-text-image` remains for those who need 4 streams on 32 GB (KV 8→5 GB,
 FP4 caveats apply); if you never send images and want 4 streams, `kv-fp8-text-only` is
-the long-running text-only high-concurrency profile. The mainline runs on v0.5.22; the
-other two stay on v0.5.21 pending re-validation.
+the long-running text-only high-concurrency profile. All profiles run on the
+v0.5.23 line as of 2026-11-09 (isolated-twin acceptance per profile).
 
 ## Architecture
 
@@ -99,12 +99,14 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
 
 `make online` runs `scripts/online/setup.sh`, which:
 1. checks docker / GPU / compose,
-2. prepares the SGLang image per variant — `fp8v` (default): pulls the pinned v0.5.22
-   base by digest and **builds the patched derived image** `llm-infer:hicache-e3a4f060`
-   from `inference/patches/` (scheduler false-latch + HiCache hybrid-Mamba
-   patches); `nvfp4` / `fp8` still run the v0.5.21 line
-   `llm-infer:hicache-b1259f3e`, and `fp8vmtp` builds `llm-infer:spec-b1259f3e`
-   on top of it (draft-share) — both pending v0.5.22 re-validation — and pulls the gateway image,
+2. prepares the SGLang image per variant — pulls the pinned v0.5.23
+   base by digest and **builds the patched derived image** `llm-infer:hicache-f832b5c3`
+   from `inference/patches/` (HiCache hybrid-Mamba patches; the scheduler
+   false-latch patch is retired — upstream #44401), then chains the variant
+   layer on top: `nvfp4` builds `llm-infer:nvfp4-f832b5c3` (NVFP4 host
+   transport, port of upstream #46452), `fp8vmtp` builds
+   `llm-infer:spec-f832b5c3` (draft-share), `fp8v` / `fp8` use the derived
+   image directly — and pulls the gateway image,
 3. downloads the model to `$MODELS_DIR`,
 4. generates `.env` (random `SESSION_SECRET`; each profile's image is pinned in its compose file),
 5. starts both services and waits for `/health`.
@@ -119,17 +121,17 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
 hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# mainline (fp8v): pinned v0.5.22 base + baked scheduler + HiCache patches.
-# The profile also sets SGLANG_HICACHE_MAMBA_SIZE_GB=8.5 (see Tuning).
-docker pull lmsysorg/sglang@sha256:e3a4f06001a29542fc4a8638536d9ffc5eb9c9942b08603c09b19a56eae4a1ae
-docker build -f inference/patches/hicache-mamba-fix/img-e3a4f060/Dockerfile \
-  -t llm-infer:hicache-e3a4f060 inference/patches
-# nvfp4 / fp8 text-only / fp8vmtp still run the v0.5.21 line (pending re-validation):
-#   docker pull lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469
-#   docker build -f inference/patches/hicache-mamba-fix/img-b1259f3e/Dockerfile \
-#     -t llm-infer:hicache-b1259f3e inference/patches
-#   docker build -f inference/patches/spec-draft-share/img-b1259f3e/Dockerfile \
-#     -t llm-infer:spec-b1259f3e inference/patches
+# mainline (fp8v): pinned v0.5.23 base + baked HiCache patches (all variants
+# share this base; sched-latch retired upstream, see inference/patches/).
+# The profiles set SGLANG_HICACHE_MAMBA_SIZE_GB=8.5 (see Tuning).
+docker pull lmsysorg/sglang@sha256:f832b5c39559c9caa900b22ad37c76fcce66470676855c42052102c537812f1f
+docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
+  -t llm-infer:hicache-f832b5c3 inference/patches
+# variant layers (only for nvfp4 / fp8vmtp; fp8v / fp8 use the image above):
+#   docker build -f inference/patches/nvfp4-host-transport/img-f832b5c3/Dockerfile \
+#     -t llm-infer:nvfp4-f832b5c3 inference/patches
+#   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
+#     -t llm-infer:spec-f832b5c3 inference/patches
 docker pull calciumion/new-api:v1.0.0-rc.45
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
@@ -160,9 +162,9 @@ services and waits for health.
 Four self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.22 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams, v0.5.21) | `kv-fp8-text-only.yml` (32 GB, 4 streams, v0.5.21) |
+| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.23 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams, v0.5.23) | `kv-fp8-text-only.yml` (32 GB, 4 streams, v0.5.23) |
 | --- | --- | --- | --- |
-| image (default) | `llm-infer:hicache-e3a4f060` (derived; scheduler + HiCache patches baked in) | `llm-infer:hicache-b1259f3e` (same, baked) | `llm-infer:hicache-b1259f3e` (same, baked) |
+| image (default) | `llm-infer:hicache-f832b5c3` (derived; HiCache patches baked in) | `llm-infer:nvfp4-f832b5c3` (+ NVFP4 host transport) | `llm-infer:hicache-f832b5c3` (same as mainline) |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
 | attention backend | `--attention-backend flashinfer` | `--prefill-kv-cache-dequant-dtype fp8_e4m3` (SM120: prefill flashinfer + decode trtllm_mha) | `--attention-backend flashinfer` |
 | vision | enabled | enabled | disabled (`language_model_only`) |
@@ -178,7 +180,7 @@ except the ones below (`make check` enforces this):
 | free VRAM after load (32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
 A fourth profile is **opt-in and experimental**: `kv-fp8-text-image-200k-mtp.yml`
-(VARIANT `fp8vmtp`, image `llm-infer:spec-b1259f3e`). It is the mainline plus
+(VARIANT `fp8vmtp`, image `llm-infer:spec-f832b5c3`). It is the mainline plus
 NEXTN/MTP speculative decoding, trading context for decode speed: the pool is pinned
 to **204800** tokens (78% of 262144) at `--mem-fraction-static 0.93` with 1.79 GB
 headroom, and decode goes **42.3 → 61.8-62.6 tok/s (1.47×)**. Everything else (mrr 2,
@@ -186,7 +188,7 @@ mamba pool 10, prefill graph off, mixed chunk on, hrrn, HiCache, vision) is inhe
 
 **Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
-each), on the v0.5.21 tree with baked-in scheduler + HiCache patches. The
+each), on the v0.5.23 tree with the HiCache patches baked in. The
 **NVFP4 KV + vision** profile is **experimental**: pick it only when you need 4 streams
 on the same card — or on a **24 GB** card, where its smaller KV footprint is the only
 meaningful option — and accept both its **occasional garbled-reasoning instability** and
@@ -217,7 +219,7 @@ All of it was measured on the target card.
 `--max-running-requests` (mrr), `--max-mamba-cache-size` and `--cuda-graph-max-bs-decode`
 must move together:
 
-- The mamba state pool caps concurrency. Mainline (v0.5.22 tree, `extra_buffer` +
+- The mamba state pool caps concurrency. Mainline (v0.5.23 tree, `extra_buffer` +
   overlap schedule; the host mamba pool is pinned at 8.5 GB by the profile, see below): upstream auto-sizes the pool at **5 × mrr** (ratio 5 = 3 base + 2
   for overlap), i.e. pool 10 -> mrr 2, pool 20 -> mrr 4. The nvfp4 and text-only
   profiles (`extra_buffer_lazy`) budget 4 slots per request (`pool // 4`): pool 16 ->
@@ -227,7 +229,7 @@ must move together:
 - Default profiles: `kv-fp8-text-image` (mainline) runs `262144 / mrr 2 / pool 10 /
   graph 2 / extra_buffer` (prefill graph on, capped at 2048 tokens); the NVFP4 and
   text-only profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` (prefill graph on,
-  capped at 4096 / 3072 tokens) on the same v0.5.21 tree.
+  capped at 4096 / 3072 tokens) on the same v0.5.23 tree.
 - On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
   graph 8, keeping graph ≥ mrr). The latch fix is validated at mrr 2 in production
   (v0.5.19 line, 24 h+; re-verified on v0.5.21 by the T1 gate) and at 4 streams on the nvfp4/text-only profiles; re-run
@@ -263,34 +265,24 @@ states. Short requests are cheap on KV and expensive on state.
 Operational rule: run offline/batch workloads under their **own gateway token** with
 **client-side concurrency <= 2** (or off-peak).
 
-### The scheduler false-latch patch
+### The scheduler false-latch patch (RETIRED on v0.5.23)
 
-Both pinned SGLang trees have the same false-latch bug (mainline v0.5.22
-`e3a4f060` at `scheduler.py:4103`; v0.5.21 `b1259f3e` at 3976; earlier anchors:
-3887 on v0.5.20 `06e4f2ed`, 3661 on v0.5.19; the legacy `b91d664a` anchor is 3355
-— older anchors live in git history): a chunked-prefill
-continuation (which already holds a request row and does not allocate a new one) is
-counted in `can_run`, so it is compared against a budget derived from free rows. This
-double-counts and sets `batch_is_full` early, capping effective concurrency at
-`mrr - 1`.
+The false-latch bug (a chunked-prefill continuation counted in `can_run` against a
+free-rows budget — double-counting that set `batch_is_full` early and capped
+concurrency at `mrr - 1`) existed on every tree from v0.5.19 to v0.5.22 (anchors:
+3355 `b91d664a` → 3661 → 3887 `06e4f2ed` → 3976 `b1259f3e` → 4103 `e3a4f060`; older
+anchors live in git history). **Upstream PR #44401 ("Count a request's held req_to_token
+row once at admission", merged 2026-10-15) fixed it in v0.5.23** —
+`get_num_allocatable_reqs` now credits `num_held_rows`, and T1 passes with no patch
+module loaded. The `inference/patches/sched-latch-fix/` builds remain in the tree as
+history only; nothing bakes them anymore.
 
-The patch lives in `inference/patches/sched-latch-fix/`, one build directory per
-pinned image (see its README for the re-anchor procedure). The mainline profile pins
-the **derived image `llm-infer:hicache-e3a4f060`** (all-in-one build from
-`inference/patches/`, also carrying the HiCache hybrid-Mamba patches below): the
-scheduler patch is baked in via a `.pth` import — the base image ships a system
-`sitecustomize.py` that silently shadows the old `PYTHONPATH=/patches` mount trick —
-and it **self-verifies its anchor at startup and fails loudly on drift**. Every profile
-now runs this baked derived image; the older `img-b91d664a/` build and its `/patches`
-mount (matches on line number + function name) are kept only for containers created
-before the restructure — see that patch directory's README.
-
-The suppression rule: only suppress the false latch when the real number of new
-admits in a pass is below the free rows at the start of the pass — so it never
-over-admits and is safe at any `mrr`. The bug needs an in-flight chunked prefill
-(prompt longer than `chunked_prefill_size`: 4096 nvfp4/text-only / 6144 mainline) plus a
-second request arriving mid-prefill; prompts at or below the chunk size never chunk
-and are unaffected.
+The suppression rule the patch used: only suppress the false latch when the real
+number of new admits in a pass is below the free rows at the start of the pass — so it
+never over-admits and is safe at any `mrr`. The bug needed an in-flight chunked
+prefill (prompt longer than `chunked_prefill_size`: 4096 nvfp4/text-only / 6144
+mainline) plus a second request arriving mid-prefill; prompts at or below the chunk
+size never chunk and are unaffected.
 
 ### Context pool budget and the prefill CUDA graph
 
@@ -413,9 +405,10 @@ that directory's README for the retirement table):
   `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (~106 slots), which restores T4 PASS (0.5 s host
   reload), with ~23 GB of host RAM still available on this box. See
   `evidence/hicache-v0522-regression-1020/`.
-- **P3 (mamba exhaustion assert #36770) — still carried.** v0.5.22 still has the fatal
+- **P3 (mamba exhaustion assert #36770) — still carried.** v0.5.23 still has the fatal
   `assert slot is not None` in `unified_cache/components/mamba.py`, so the
-  skip-instead-of-assert backport is re-anchored to `img-e3a4f060`.
+  skip-instead-of-assert backport is ported to `img-f832b5c3` (onto the new
+  `_alloc_mamba_slot(req)` signature).
 
 Mainline runs `--chunked-prefill-size 6144` (8192 OOMs the pool). The regression gate
 `verify-hicache-thrash.py` demands a real host load-back
@@ -624,12 +617,13 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── Makefile  .env.example
 ├── inference/
 │   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
-│   │                               v0.5.22 tree, hrrn, Rust radix core, scheduler + hicache fix: cps 6144)
+│   │                               v0.5.23 tree, hrrn, Rust radix core, hicache fix: cps 6144)
 │   ├── kv-nvfp4-text-image.yml     experimental: NVFP4 KV + vision (32 GB, mrr 4)
 │   ├── kv-fp8-text-only.yml        FP8 KV, text only, 4 streams (32 GB)
 │   ├── kv-fp8-text-image-200k-mtp.yml  opt-in: mainline + MTP spec decoding (204800-token pool)
-│   ├── patches/sched-latch-fix/    scheduler false-latch patch (one build per pinned image)
-│   ├── patches/hicache-mamba-fix/  HiCache patches (write-through, alloc degrade, host pool)
+│   ├── patches/sched-latch-fix/    scheduler false-latch patch (RETIRED — upstream #44401; history only)
+│   ├── patches/hicache-mamba-fix/  HiCache patches (alloc degrade, host pool)
+│   ├── patches/nvfp4-host-transport/  NVFP4 payload+scale host transport (#46452 port)
 │   └── tools/acceptance/           acceptance gates (T1 latch, T3 mamba stash, T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml

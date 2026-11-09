@@ -62,12 +62,12 @@ decode 42.3 → 61.8–62.6 tok/s (1.47×; accept length 1.73–1.93 of a max 2)
 
 ```bash
 cd inference/patches
-docker build -f spec-draft-share/img-b1259f3e/Dockerfile -t llm-infer:spec-b1259f3e .
+docker build -f spec-draft-share/img-f832b5c3/Dockerfile -t llm-infer:spec-f832b5c3 .
 ```
 
-Chained on `llm-infer:hicache-b1259f3e`, so it also carries sched-latch + hicache
-P3 (5 modified files total; the Dockerfile self-check asserts exactly 5 plus a
-syntax parse).
+Chained on `llm-infer:hicache-f832b5c3`, so it also carries the hicache P3/C
+patches (5 modified files total; the Dockerfile self-check asserts exactly 5
+plus a syntax parse). The per-base build history is below.
 
 ## Re-anchoring on a new base
 

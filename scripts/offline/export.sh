@@ -9,12 +9,10 @@ cd "$ROOT"
 
 BUNDLE="${1:-bundle}"
 VARIANT="${VARIANT:-fp8v}"
-SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:e3a4f06001a29542fc4a8638536d9ffc5eb9c9942b08603c09b19a56eae4a1ae"
-DERIVED_IMAGE="llm-infer:hicache-e3a4f060"
-SPEC_IMAGE="llm-infer:spec-b1259f3e"
-# fp8vmtp stays on the v0.5.21 line until the spec profile is re-validated on v0.5.22.
-LEGACY_SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469"
-LEGACY_DERIVED_IMAGE="llm-infer:hicache-b1259f3e"
+SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:f832b5c39559c9caa900b22ad37c76fcce66470676855c42052102c537812f1f"
+DERIVED_IMAGE="llm-infer:hicache-f832b5c3"
+SPEC_IMAGE="llm-infer:spec-f832b5c3"
+NVFP4_IMAGE="llm-infer:nvfp4-f832b5c3"
 PATCH_DIR="inference/patches"
 NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.45}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
@@ -26,23 +24,19 @@ die() { printf '\033[1;31m[export] error:\033[0m %s\n' "$*" >&2; exit 1; }
 [[ -d "${MODELS_DIR}/${MODEL_DIR_NAME}" ]] || die "model not found: ${MODELS_DIR}/${MODEL_DIR_NAME}"
 mkdir -p "$BUNDLE/images" "$BUNDLE/model"
 
-if [[ "$VARIANT" == "fp8v" ]]; then
-  img="$DERIVED_IMAGE"
-  log "pulling SGLang base image (v0.5.22 line)"
-  docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
-  log "building patched derived image (${DERIVED_IMAGE}; sched-latch + hicache-mamba)"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-e3a4f060/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
-else
-  # nvfp4 / fp8 / fp8vmtp stay on the v0.5.21 line until re-validated on v0.5.22.
-  img="$LEGACY_DERIVED_IMAGE"
-  log "variant ${VARIANT} runs the v0.5.21 line (pending v0.5.22 validation); building ${LEGACY_DERIVED_IMAGE}"
-  docker pull "$LEGACY_SGLANG_BASE_DIGEST" || die "cannot pull legacy base image ${LEGACY_SGLANG_BASE_DIGEST}"
-  docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-b1259f3e/Dockerfile" -t "$LEGACY_DERIVED_IMAGE" "$PATCH_DIR"
-  if [[ "$VARIANT" == "fp8vmtp" ]]; then
-    img="$SPEC_IMAGE"
-    log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
-    docker build -f "${PATCH_DIR}/spec-draft-share/img-b1259f3e/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"
-  fi
+img="$DERIVED_IMAGE"
+log "pulling SGLang base image (v0.5.23 line)"
+docker pull "$SGLANG_BASE_DIGEST" || die "cannot pull base image ${SGLANG_BASE_DIGEST}"
+log "building patched derived image (${DERIVED_IMAGE}; hicache P3/C, sched-latch retired upstream)"
+docker build -f "${PATCH_DIR}/hicache-mamba-fix/img-f832b5c3/Dockerfile" -t "$DERIVED_IMAGE" "$PATCH_DIR"
+if [[ "$VARIANT" == "nvfp4" ]]; then
+  img="$NVFP4_IMAGE"
+  log "building NVFP4 host-transport image (${NVFP4_IMAGE}; derived + #46452 port)"
+  docker build -f "${PATCH_DIR}/nvfp4-host-transport/img-f832b5c3/Dockerfile" -t "$NVFP4_IMAGE" "$PATCH_DIR"
+elif [[ "$VARIANT" == "fp8vmtp" ]]; then
+  img="$SPEC_IMAGE"
+  log "building spec-decoding image (${SPEC_IMAGE}; derived + draft-share)"
+  docker build -f "${PATCH_DIR}/spec-draft-share/img-f832b5c3/Dockerfile" -t "$SPEC_IMAGE" "$PATCH_DIR"
 fi
 echo "$VARIANT" > "$BUNDLE/VARIANT"
 log "pulling gateway image"

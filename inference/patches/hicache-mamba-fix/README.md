@@ -7,19 +7,18 @@ img-<first8-of-image-digest>/   one directory per serve-image digest
   ├─ patches/                   context diffs against the image's
   │                             /sgl-workspace/sglang checkout (git format,
   │                             one file per modified source file)
-  └─ Dockerfile                  all-in-one derived image recipe: sched-latch
-                                modules + these patches, in one build
+  └─ Dockerfile                  all-in-one derived image recipe: these
+                                patches in one build (per base tree)
 ```
 
-The all-in-one image is built from `inference/patches/` — the context must include
-both patch families:
+The all-in-one image is built from `inference/patches/`:
 
 ```
 cd inference/patches
-docker build -f hicache-mamba-fix/img-b1259f3e/Dockerfile -t llm-infer:hicache-b1259f3e .
-docker run --rm --network=none --entrypoint python3 llm-infer:hicache-b1259f3e \
-  -c "import sglang.srt.managers.scheduler"   # expects the sched-latch self-check
-                                              # to log 'anchor verified' + 'installed'
+docker build -f hicache-mamba-fix/img-f832b5c3/Dockerfile -t llm-infer:hicache-f832b5c3 .
+docker run --rm --network=none --entrypoint python3 llm-infer:hicache-f832b5c3 \
+  -c "import sglang.srt.managers.scheduler"   # build-time self-check asserts
+                                              # the patch markers at image build
 ```
 
 ## What the bug is
