@@ -1,0 +1,30 @@
+diff --git a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
+index d8ff9d9..1459327 100644
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
+@@ -4,6 +4,7 @@ import logging
+ from dataclasses import dataclass, field
+ from typing import TYPE_CHECKING, Any, Callable, NamedTuple, Optional
+ 
++from sglang.srt.environ import envs
+ from sglang.srt.mem_cache.hicache_storage import (
+     PoolHitPolicy,
+     PoolName,
+@@ -1244,6 +1245,8 @@ def build_hybrid_mamba_stack(
+         kv_host_size, mamba_host_size = _split_hicache_size(
+             get_memory().hicache_size, (kv_pool, mamba_pool)
+         )
++    if envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get() > 0:
++        mamba_host_size = envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get()
+     if qsa_pool is not None and kv_host_size is not None:
+         kv_bytes = sum(kv_pool.get_kv_size_bytes())
+         index_bytes = sum(
+@@ -1375,6 +1378,8 @@ def build_hybrid_mamba_swa_stack(
+         kv_host_size, swa_host_size, mamba_host_size = _split_hicache_size(
+             get_memory().hicache_size, (full_kv_pool, swa_kv_pool, mamba_pool)
+         )
++    if envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get() > 0:
++        mamba_host_size = envs.SGLANG_HICACHE_MAMBA_SIZE_GB.get()
+     host_pool_group = build_hybrid_swa_group(
+         page_size=page_size,
+         full_kv_pool=full_kv_pool,

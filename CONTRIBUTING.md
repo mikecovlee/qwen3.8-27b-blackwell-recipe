@@ -19,7 +19,12 @@ than forking them into local copies.
 3. On an isolated test instance (same profiles, different container name and host
    port — never against live traffic), run the acceptance gates in
    `inference/tools/acceptance/`; they exit non-zero on failure.
-4. Only then switch the profile's `image:` line.
+4. Only then switch the profile's `image:` line and update the pinned base digest in the
+   installers (`SGLANG_BASE_DIGEST` / `DERIVED_IMAGE` in `scripts/online/setup.sh` and
+   `scripts/offline/export.sh`; `expected_image` in `scripts/offline/setup.sh`).
+5. Record the migration: add an `evidence/<name>/` bundle, link it from
+   `evidence/README.md` (+ `README-zh.md`), and refresh the top-level READMEs (supported
+   version, patch retirement table, scheduler anchors).
 
 ## Scripts in tools/
 

@@ -1,0 +1,20 @@
+diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
+index 993b53f..806ce55 100644
+--- a/python/sglang/srt/speculative/eagle_worker_v2.py
++++ b/python/sglang/srt/speculative/eagle_worker_v2.py
+@@ -223,6 +223,15 @@ class EagleDraftWorker(EagleDraftWorkerBase):
+ 
+         self.plan_stream, self.plan_stream_ctx = get_plan_stream(self.device)
+ 
++        # Share the target embedding + lm_head before the KV pool is profiled.
++        # The draft allocates its own bf16 copies that set_embed_and_head()
++        # always overwrites, so profiling otherwise sizes the pool against a
++        # footprint freed moments later. Single stage only: under PP the draft
++        # may load its own embedding, which needs the draft build context.
++        if get_parallel().pp_size == 1:
++            self.init_token_map()
++            self.init_lm_head()
++
+     def alloc_memory_pool(
+         self,
+         memory_pool_config=None,

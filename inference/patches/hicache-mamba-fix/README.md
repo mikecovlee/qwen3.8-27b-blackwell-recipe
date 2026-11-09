@@ -7,19 +7,18 @@ img-<first8-of-image-digest>/   one directory per serve-image digest
   ├─ patches/                   context diffs against the image's
   │                             /sgl-workspace/sglang checkout (git format,
   │                             one file per modified source file)
-  └─ Dockerfile                  all-in-one derived image recipe: sched-latch
-                                modules + these patches, in one build
+  └─ Dockerfile                  all-in-one derived image recipe: these
+                                patches in one build (per base tree)
 ```
 
-The all-in-one image is built from `inference/patches/` — the context must include
-both patch families:
+The all-in-one image is built from `inference/patches/`:
 
 ```
 cd inference/patches
-docker build -f hicache-mamba-fix/img-06e4f2ed/Dockerfile -t llm-infer:hicache-06e4f2ed .
-docker run --rm --network=none --entrypoint python3 llm-infer:hicache-06e4f2ed \
-  -c "import sglang.srt.managers.scheduler"   # expects the sched-latch self-check
-                                              # to log 'anchor verified' + 'installed'
+docker build -f hicache-mamba-fix/img-f832b5c3/Dockerfile -t llm-infer:hicache-f832b5c3 .
+docker run --rm --network=none --entrypoint python3 llm-infer:hicache-f832b5c3 \
+  -c "import sglang.srt.managers.scheduler"   # build-time self-check asserts
+                                              # the patch markers at image build
 ```
 
 ## What the bug is
@@ -44,6 +43,9 @@ tier, so every eviction paid a full re-prefill:
    `kv_pool_tokens / chunked_prefill_size ≤ device_mamba_slots + host_mamba_slots`
    (upstream #36935); `[C]` adds `SGLANG_HICACHE_MAMBA_SIZE_GB` to size the host
    pool directly. Default profile: `262144 / 6144 ≈ 43 ≤ 10 + 88`.
+   *(**Superseded on v0.5.21**: the reworked mamba accounting keeps the
+   ratio-derived host pool sufficient — T3/T4 pass without the C env — so `[C]`
+   is carried baked-but-dormant, not set by the profile.)*
 
 ## Patches (v0.5.19 build, against tree 0bcd822 — historical; the v0.5.20 build drops P2, see below)
 
@@ -97,11 +99,11 @@ to a newer tree. Procedure:
 
 | Hunk | Retire when |
 |---|---|
-| P1 | #36647 (or #39745) lands in the pinned release line |
+| P1 | **RETIRED since v0.5.21**: v0.5.21 (b1259f3e) absorbed it upstream — a first-class chunked-prefill stash + `flush_pending_backups()` backup pipeline supersedes our write-through hunk; the img-b1259f3e build carries no `unified_radix_cache.py` patch and T4 passes without it |
 | P2 | **RETIRED 2026-09-19**: v0.5.20 (06e4f2ed) absorbed it upstream as `Req.host_loaded_length` + `materialized_host_hit_len()`; the img-06e4f2ed build carries no P2 files |
-| P3 | #36770 lands (still open as of v0.5.20; assert re-confirmed at components/mamba.py:495 after upstream's mamba_component.py -> mamba.py rename) |
-| C | upstream grows an equivalent explicit host-mamba sizing knob (watch #38644) |
-| sched-latch modules | upstream fixes the false-latch double count (re-checked on v0.5.20 tree 94602c9: still unfixed, 2026-09-19). LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
+| P3 | #36770 lands (still open as of v0.5.23; ported onto the new `_alloc_mamba_slot(req)` signature on img-f832b5c3, build self-check green 2026-11-09) |
+| C | **REQUIRED on v0.5.22 and v0.5.23**: v0.5.22's write-through backs up ~101 mamba checkpoints for the T4 workload (10 on v0.5.21), which overflows the default 1.65 GB host pool (~20 slots); the LRU drops session states and a host hit becomes a full replay (T4 REPLAY 125 s). `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (~106 slots) restores T4 PASS (0.5 s, load_back +137344), matching v0.5.21. **T4 re-check 2026-11-09 on v0.5.23: still REQUIRED** (without the env D replays 125 s, load_back +0; #42701/#44800 did not shrink the working set). Keep until upstream reworks the host mamba pool sizing; re-check on each bump |
+| sched-latch modules | **RETIRED since v0.5.23**: upstream PR #44401 ("Count a request's held req_to_token row once at admission", merged 2026-10-15) fixed the double counting — `get_num_allocatable_reqs` adds `num_held_rows` back to the pool term; the gate shape changed so the monkeypatch anchor self-check would refuse to install anyway. The img-f832b5c3 build bakes NO sched-latch module. LPM-side fairness: waitfix retired 09-19, upstream HRRN accepted as mainline |
 
 ## v0.5.20 build (img-06e4f2ed, tree 94602c9)
 
@@ -116,3 +118,67 @@ against a clean checkout (git apply --check) and baked as
 
 These are backports carried until the upstream PRs in the retirement table land;
 the img-06e4f2ed all-in-one is the supported production build.
+
+## v0.5.21 build (img-b1259f3e, tree e00930c)
+
+Re-anchored onto the v0.5.21 line: 4 files instead of 5 (P1 dropped as
+upstream-absorbed; the chunked-prefill stash + `flush_pending_backups()` pipeline
+supersedes our write-through hunk, confirmed by T4). P3 re-anchored at
+`components/mamba.py:509` (callers at 586/599/606); `[C]` carried but dormant (the
+profile no longer sets `SGLANG_HICACHE_MAMBA_SIZE_GB`). v0.5.21 defaults to the
+Rust unified-radix core (`SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=rust`), which our
+config uses — all gates pass under it. Exported patches under
+`img-b1259f3e/patches/`; baked as `llm-infer:hicache-b1259f3e` — the mainline
+build since v0.5.21 (`kv-fp8-text-image.yml`).
+
+## v0.5.22 build (img-e3a4f060, tree baa9bef)
+
+Re-anchored onto the v0.5.22 line (index digest
+`sha256:e3a4f060…`, built 2026-10-19): still 4 files. P3 re-applied with line
+offsets (upstream #36770 still open). `[C]` re-anchored because
+`hybrid_pool_assembler.py` restructured the host-size split into an
+`if get_memory().hicache_size > 0:` block with a QSA kv re-scale step — the
+override now sits right after that block in both `build_hybrid_mamba_stack`
+and `build_hybrid_mamba_swa_stack` (and the `envs` import moved up with the
+reordered import block); still dormant unless
+`SGLANG_HICACHE_MAMBA_SIZE_GB` is set. P1 stays retired (the chunked-prefill
+stash + `flush_pending_backups()` pipeline is still first-class upstream; the
+Rust TreeCore still has no `node_by_id()`). Exported patches under
+`img-e3a4f060/patches/`; all-in-one baked as `llm-infer:hicache-e3a4f060`
+(build self-check green 2026-10-20). Acceptance on the isolated twin: **T1 PASS**
+(latch-log 0→3), **T3 PASS** (`--expect safe`, 2/2), **T4 PASS** with
+`SGLANG_HICACHE_MAMBA_SIZE_GB=8.5` (D 0.5 s, load_back +137344). Without the env
+T4 REPLAYs on plain v0.5.22 too: v0.5.22's write-through backs up ~101 mamba
+checkpoints (vs 10 on v0.5.21), overflowing the default 1.65 GB host mamba pool
+(~20 slots), so the LRU drops the session states and the host tier becomes
+unmatchable. The knob is now active in `kv-fp8-text-image.yml`. Evidence and
+ruled-out causes: `../../evidence/hicache-v0522-regression-1020/`. The profile
+switched to e3a4f060 on 2026-10-20; the spec/200k-mtp profile stays on b1259f3e
+pending the same validation.
+
+## v0.5.23 build (img-f832b5c3, tree 297e54f)
+
+Re-anchored onto the v0.5.23 line (index digest
+`sha256:f832b5c3…`, built 2026-11-09): still 4 files, but **P3 was ported, not
+re-anchored** — `_alloc_mamba_slot` gained a `req` parameter and a lazy
+extra-buffer lock-release step in v0.5.23, so the hunk was rewritten to merge
+the `_try_alloc_mamba_slot()` None-skip semantics into the new signature (the
+three donate-path callers now pass `req` and return 0 on failure; the
+external-linker LOAD path at `mamba.py:807` keeps the fatal
+`_alloc_mamba_slot()`). `[C]` re-applied with offsets (+76/+83); `_split_hicache_size`
+now prefers `host_capacity_bytes` but the override insertion points are
+unchanged. **sched-latch-fix is NOT baked into this build**: upstream PR
+**#44401** ("Count a request's held req_to_token row once at admission",
+merged 2026-10-15, in v0.5.23) fixed the double counting —
+`get_num_allocatable_reqs` now adds `num_held_rows` back to the pool term at
+the main gate (`scheduler.py:4225-4232`) and the dLLM gate; the PD-prefill gate
+that #44401 also fixed was later refactored out of `_get_new_batch_prefill_raw`
+entirely. Exported patches under `img-f832b5c3/patches/`; all-in-one baked as
+`llm-infer:hicache-f832b5c3` (build self-check green 2026-11-09). Acceptance on
+the isolated twin (2026-11-09): **T1 PASS** (B@168.5 = A prefill end,
+latch-log 0→0 — the false-latch no longer occurs with no module loaded),
+**T3 PASS** (safe, 2/2), **T4 PASS** with `SGLANG_HICACHE_MAMBA_SIZE_GB=8.5`
+(D 0.4 s, load_back +137344); **without the env T4 REPLAYs** (D 124.5 s,
+load_back +0) — the C knob is STILL REQUIRED on v0.5.23 (v0.5.23's
+#42701/#44800 write-ordering fixes did not change the checkpoint working
+set). Evidence: `../../evidence/sglang-0523-upgrade-1109/`.
