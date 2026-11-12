@@ -14,7 +14,7 @@ DERIVED_IMAGE="llm-infer:hicache-f832b5c3"
 SPEC_IMAGE="llm-infer:spec-f832b5c3"
 NVFP4_IMAGE="llm-infer:nvfp4-f832b5c3"
 PATCH_DIR="inference/patches"
-NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.45}"
+NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.49}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
 

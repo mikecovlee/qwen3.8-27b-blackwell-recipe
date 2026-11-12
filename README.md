@@ -132,7 +132,7 @@ docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
 #     -t llm-infer:nvfp4-f832b5c3 inference/patches
 #   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
 #     -t llm-infer:spec-f832b5c3 inference/patches
-docker pull calciumion/new-api:v1.0.0-rc.45
+docker pull calciumion/new-api:v1.0.0-rc.49
 docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
