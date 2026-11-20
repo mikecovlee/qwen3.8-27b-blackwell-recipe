@@ -48,10 +48,10 @@ cards run the same images; pick a config variant by VRAM:
 | Card | VRAM | Recommended variant |
 | --- | --- | --- |
 | RTX 5090D V2 / RTX PRO 4000 Blackwell | 24 GB | `kv-nvfp4-text-image` (only meaningful variant; expect to lower `--max-total-tokens`) |
-| RTX 5090 | 32 GB | `kv-fp8-text-image` (default); `kv-nvfp4-text-image` if you want 4 streams |
-| RTX PRO 4500 Blackwell (this repo) | 32 GB | `kv-fp8-text-image` (default, validated) |
-| RTX PRO 5000 Blackwell | 48 GB | `kv-fp8-text-image`, optionally raise mrr to 4 (see [Tuning](#tuning)) |
-| RTX PRO 6000 Blackwell | 96 GB | `kv-fp8-text-image`, and raise concurrency (see [Tuning](#tuning)) |
+| RTX 5090 | 32 GB | `kv-fp8-text-image-qad` (default); `kv-nvfp4-text-image` if you want 4 streams |
+| RTX PRO 4500 Blackwell (this repo) | 32 GB | `kv-fp8-text-image-qad` (default, validated 2026-11-20) |
+| RTX PRO 5000 Blackwell | 48 GB | `kv-fp8-text-image-qad`, optionally raise mrr to 4 (see [Tuning](#tuning)) |
+| RTX PRO 6000 Blackwell | 96 GB | `kv-fp8-text-image-qad`, and raise concurrency (see [Tuning](#tuning)) |
 
 Why FP8 KV is the 32 GB default now: the KV pool budget is
 `free − fraction slack − mm reservation − mamba pool`, and CUDA graphs are **not** in it
@@ -67,6 +67,15 @@ context. `kv-nvfp4-text-image` remains for those who need 4 streams on 32 GB (KV
 FP4 caveats apply); if you never send images and want 4 streams, `kv-fp8-text-only` is
 the long-running text-only high-concurrency profile. All profiles run on the
 v0.5.23 line as of 2026-11-09 (isolated-twin acceptance per profile).
+
+Since 2026-11-20 the default weights are **QAD** (quantization-aware distillation,
+`nvidia/Qwen3.8-27B-NVFP4-QAD`): same NVFP4/FP8 mixed recipe with more layers at
+NVFP4, ~2 GB smaller at load, quality closer to BF16. The `qad` profile
+(`kv-fp8-text-image-qad.yml`) spends the savings on a 294912-token aggregate KV
+pool and 8192 chunked prefill; T3/T4/vision-ladder all pass (see its header).
+`kv-fp8-text-image` (plain NVFP4 weights) remains the fallback. MTP spec decoding
+does NOT work on the QAD checkpoint (4 auxiliary `mtp.*` tensors missing from the
+export — draft acceptance 1.00); use `fp8vmtp` with plain weights if you need it.
 
 ## Architecture
 
@@ -92,8 +101,9 @@ The gateway is optional. SGLang alone speaks the OpenAI API at `:8080`.
 ```bash
 git clone https://github.com/mikecovlee/qwen3.8-27b-blackwell-recipe.git
 cd qwen3.8-27b-blackwell-recipe
-make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
-# other profiles:     make online VARIANT=nvfp4   (4 streams on 32 GB, FP4 KV)
+make online          # default VARIANT=qad (QAD weights + FP8 KV + vision, 32 GB)
+# other profiles:     make online VARIANT=fp8v    (plain NVFP4 weights, fallback)
+#                     make online VARIANT=nvfp4   (4 streams on 32 GB, FP4 KV)
 #                     make online VARIANT=fp8     (32 GB, text only, 4 streams)
 ```
 
@@ -105,9 +115,10 @@ make online          # default VARIANT=fp8v (FP8 KV + vision, mrr 2, 32 GB)
    false-latch patch is retired — upstream #44401), then chains the variant
    layer on top: `nvfp4` builds `llm-infer:nvfp4-f832b5c3` (NVFP4 host
    transport, port of upstream #46452), `fp8vmtp` builds
-   `llm-infer:spec-f832b5c3` (draft-share), `fp8v` / `fp8` use the derived
+   `llm-infer:spec-f832b5c3` (draft-share), `qad` / `fp8v` / `fp8` use the derived
    image directly — and pulls the gateway image,
-3. downloads the model to `$MODELS_DIR`,
+3. downloads the model to `$MODELS_DIR` (`qad`: the QAD checkpoint into the
+   `${MODEL_DIR}-QAD` suffix directory),
 4. generates `.env` (random `SESSION_SECRET`; each profile's image is pinned in its compose file),
 5. starts both services and waits for `/health`.
 
@@ -120,20 +131,20 @@ your client at it — see [`gateway/opencode-config.md`](gateway/opencode-config
 ```bash
 cp .env.example .env          # edit MODELS_DIR and SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
-hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# mainline (fp8v): pinned v0.5.23 base + baked HiCache patches (all variants
+hf download nvidia/Qwen3.8-27B-NVFP4-QAD --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4-QAD"
+# default (qad): pinned v0.5.23 base + baked HiCache patches (all variants
 # share this base; sched-latch retired upstream, see inference/patches/).
 # The profiles set SGLANG_HICACHE_MAMBA_SIZE_GB=8.5 (see Tuning).
 docker pull lmsysorg/sglang@sha256:f832b5c39559c9caa900b22ad37c76fcce66470676855c42052102c537812f1f
 docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
   -t llm-infer:hicache-f832b5c3 inference/patches
-# variant layers (only for nvfp4 / fp8vmtp; fp8v / fp8 use the image above):
+# variant layers (only for nvfp4 / fp8vmtp; qad / fp8v / fp8 use the image above):
 #   docker build -f inference/patches/nvfp4-host-transport/img-f832b5c3/Dockerfile \
 #     -t llm-infer:nvfp4-f832b5c3 inference/patches
 #   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
 #     -t llm-infer:spec-f832b5c3 inference/patches
 docker pull calciumion/new-api:v1.0.0-rc.49
-docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
+docker compose --env-file .env -f inference/kv-fp8-text-image-qad.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
 </details>
@@ -143,7 +154,7 @@ docker compose --env-file .env -f gateway/docker-compose.yml up -d
 On a **networked** machine:
 
 ```bash
-make export          # builds bundle/ : both images (fp8v: the patched derived image),
+make export          # builds bundle/ : both images (qad/fp8v: the patched derived image),
                      # the model, checksums (~70 GB); VARIANT= like online
 ```
 
@@ -159,10 +170,10 @@ services and waits for health.
 
 ## Configuration variants
 
-Four self-contained compose files live in `inference/`. They share every argument
+Five self-contained compose files live in `inference/`. They share every argument
 except the ones below (`make check` enforces this):
 
-| Argument | `kv-fp8-text-image.yml` (**mainline default**, 32 GB, v0.5.23 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams, v0.5.23) | `kv-fp8-text-only.yml` (32 GB, 4 streams, v0.5.23) |
+| Argument | `kv-fp8-text-image.yml` (plain fallback, 32 GB, v0.5.23 tree) | `kv-nvfp4-text-image.yml` (*experimental*, 32 GB, 4 streams, v0.5.23) | `kv-fp8-text-only.yml` (32 GB, 4 streams, v0.5.23) |
 | --- | --- | --- | --- |
 | image (default) | `llm-infer:hicache-f832b5c3` (derived; HiCache patches baked in) | `llm-infer:nvfp4-f832b5c3` (+ NVFP4 host transport) | `llm-infer:hicache-f832b5c3` (same as mainline) |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
@@ -179,16 +190,26 @@ except the ones below (`make check` enforces this):
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
 | free VRAM after load (32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
-A fourth profile is **opt-in and experimental**: `kv-fp8-text-image-200k-mtp.yml`
+The **default** since 2026-11-20 is `kv-fp8-text-image-qad.yml` (VARIANT `qad`):
+the plain mainline plus three deltas — QAD weights (model path
+`${MODEL_DIR:-Qwen3.8-27B-NVFP4}-QAD`), `--max-total-tokens 294912` (+32768
+aggregate pool tokens; per-request context stays 262144), and
+`--chunked-prefill-size 8192`. QAD's ~2 GB weight savings pay for both;
+measured headroom 2.58 GB, T3/T4/vision-ladder all PASS (profile header has the
+evidence). Everything else in the table above is inherited unchanged.
+
+A fifth profile is **opt-in and experimental**: `kv-fp8-text-image-200k-mtp.yml`
 (VARIANT `fp8vmtp`, image `llm-infer:spec-f832b5c3`). It is the mainline plus
 NEXTN/MTP speculative decoding, trading context for decode speed: the pool is pinned
 to **204800** tokens (78% of 262144) at `--mem-fraction-static 0.93` with 1.79 GB
 headroom, and decode goes **42.3 → 61.8-62.6 tok/s (1.47×)**. Everything else (mrr 2,
 mamba pool 10, prefill graph off, mixed chunk on, hrrn, HiCache, vision) is inherited.
 
-**Which one?** Start with **FP8 KV + vision** (mainline default): full 262144 context +
+**Which one?** Start with **QAD + FP8 KV + vision** (`qad`, default): full 262144 context +
 vision on 32 GB with zero FP4 KV caveats, at 2 concurrent streams (~2x decode bandwidth
-each), on the v0.5.23 tree with the HiCache patches baked in. The
+each), on the v0.5.23 tree with the HiCache patches baked in. Use `fp8v` (plain NVFP4
+weights) as the fallback, or when you need MTP spec decoding (`fp8vmtp` — the QAD
+checkpoint's missing `mtp.*` tensors make spec decoding a no-op on it). The
 **NVFP4 KV + vision** profile is **experimental**: pick it only when you need 4 streams
 on the same card — or on a **24 GB** card, where its smaller KV footprint is the only
 meaningful option — and accept both its **occasional garbled-reasoning instability** and
@@ -200,14 +221,15 @@ concurrent matched-prefix sum under ~262K tokens). For 4-way *very-long-context*
 re-run `tools/concurrency-load.py soak`.
 
 ```bash
-make up                   # default: FP8 KV + vision, mrr 2 (32 GB)
+make up                   # default: QAD weights + FP8 KV + vision, mrr 2 (32 GB)
+make up VARIANT=fp8v      # plain NVFP4 weights (fallback)
 make up VARIANT=nvfp4     # 32 GB, FP4 KV, 4 streams
 make up VARIANT=fp8       # 32 GB, text only, 4 streams
-make up VARIANT=fp8vmtp   # opt-in 200K-context MTP spec decoding (32 GB)
+make up VARIANT=fp8vmtp   # opt-in 200K-context MTP spec decoding (32 GB, plain weights)
 ```
 
-The installers honor the same switch (`make online|offline VARIANT=...`); `fp8v` now
-requires only 32 GB at preflight.
+The installers honor the same switch (`make online|offline VARIANT=...`); `qad` / `fp8v`
+require only 32 GB at preflight.
 
 ## Tuning
 
@@ -226,8 +248,10 @@ must move together:
   mrr 4.
 - The CUDA-graph decode batch size must cover mrr, or larger batches silently fall back
   to eager mode (~60% slower).
-- Default profiles: `kv-fp8-text-image` (mainline) runs `262144 / mrr 2 / pool 10 /
-  graph 2 / extra_buffer` (prefill graph on, capped at 2048 tokens); the NVFP4 and
+- Default profiles: `kv-fp8-text-image-qad` (default) runs `294912 / mrr 2 / pool 10 /
+  graph 2 / extra_buffer` with 8192 chunked prefill; `kv-fp8-text-image` (plain
+  fallback) runs `262144 / mrr 2 / pool 10 / graph 2 / extra_buffer` with 6144
+  (both: prefill graph off); the NVFP4 and
   text-only profiles run `262144 / 4 / 16 / 4 / extra_buffer_lazy` (prefill graph on,
   capped at 4096 / 3072 tokens) on the same v0.5.23 tree.
 - On a 96 GB card you can raise all three together (mainline ratio: mrr 6 / pool 30 /
@@ -616,14 +640,17 @@ file (`RULER_HAYSTACK`, default `haystack.txt`) and the packages `tiktoken` and 
 ├── LICENSE                     Apache-2.0
 ├── Makefile  .env.example
 ├── inference/
-│   ├── kv-fp8-text-image.yml       mainline default: FP8 KV + vision (32 GB, mrr 2,
+│   ├── kv-fp8-text-image-qad.yml   default: QAD weights + FP8 KV + vision (32 GB, mrr 2,
+│   │                               294912-token pool, cps 8192; validated 2026-11-20)
+│   ├── kv-fp8-text-image.yml       plain fallback: FP8 KV + vision (32 GB, mrr 2,
 │   │                               v0.5.23 tree, hrrn, Rust radix core, hicache fix: cps 6144)
 │   ├── kv-nvfp4-text-image.yml     experimental: NVFP4 KV + vision (32 GB, mrr 4)
 │   ├── kv-fp8-text-only.yml        FP8 KV, text only, 4 streams (32 GB)
-│   ├── kv-fp8-text-image-200k-mtp.yml  opt-in: mainline + MTP spec decoding (204800-token pool)
+│   ├── kv-fp8-text-image-200k-mtp.yml  opt-in: plain + MTP spec decoding (204800-token pool)
 │   ├── patches/sched-latch-fix/    scheduler false-latch patch (RETIRED — upstream #44401; history only)
 │   ├── patches/hicache-mamba-fix/  HiCache patches (alloc degrade, host pool)
 │   ├── patches/nvfp4-host-transport/  NVFP4 payload+scale host transport (#46452 port)
+│   ├── patches/spec-draft-share/   MTP draft embed/lm_head sharing (fp8vmtp image)
 │   └── tools/acceptance/           acceptance gates (T1 latch, T3 mamba stash, T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml

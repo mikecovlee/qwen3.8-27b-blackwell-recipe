@@ -42,10 +42,10 @@ OpenAI 兼容的 SGLang 服务运行 **Qwen3.8-27B**,262144 token 上下文、�
 | 显卡 | 显存 | 推荐版本 |
 | --- | --- | --- |
 | RTX 5090D V2 / RTX PRO 4000 Blackwell | 24 GB | `kv-nvfp4-text-image`(唯一有意义的选择;预计需下调 `--max-total-tokens`) |
-| RTX 5090 | 32 GB | `kv-fp8-text-image`(默认);要 4 路并发用 `kv-nvfp4-text-image` |
-| RTX PRO 4500 Blackwell(本仓库) | 32 GB | `kv-fp8-text-image`(默认,已实测) |
-| RTX PRO 5000 Blackwell | 48 GB | `kv-fp8-text-image`,可选上调 mrr 至 4(见[调优要点](#调优要点)) |
-| RTX PRO 6000 Blackwell | 96 GB | `kv-fp8-text-image`,并可上调并发(见[调优要点](#调优要点)) |
+| RTX 5090 | 32 GB | `kv-fp8-text-image-qad`(默认);要 4 路并发用 `kv-nvfp4-text-image` |
+| RTX PRO 4500 Blackwell(本仓库) | 32 GB | `kv-fp8-text-image-qad`(默认,2026-11-20 已实测) |
+| RTX PRO 5000 Blackwell | 48 GB | `kv-fp8-text-image-qad`,可选上调 mrr 至 4(见[调优要点](#调优要点)) |
+| RTX PRO 6000 Blackwell | 96 GB | `kv-fp8-text-image-qad`,并可上调并发(见[调优要点](#调优要点)) |
 
 为什么 32 GB 上 FP8 KV 现在是默认:KV 池预算 = `free − fraction slack − mm 预留 − mamba 池`,
 而 **CUDA graph 不在这个公式里**(图在池之后捕获,花的是 slack)。在主线**关掉** prefill CUDA
@@ -56,7 +56,15 @@ graph——~1.1 GB 的图不再与视觉 + 满 262144 池共存(开启会让 HiC
 [mamba 槽计价](#mamba-槽计价为什么小的离线请求也能打满整卡));KV 池被
 `--max-total-tokens` 钉住而非被内存钉住,因此 +2 槽不损失任何上下文。需要 4 路并发的
 32 GB 卡仍可选 `kv-nvfp4-text-image`(KV 8→5 GB,FP4 注意事项见下);不需要图片且要高并发时用
-`kv-fp8-text-only`。四档全部跑 v0.5.23 线(2026-11-09,逐档隔离孪生验收)。
+`kv-fp8-text-only`。五档全部跑 v0.5.23 线(2026-11-09,逐档隔离孪生验收)。
+
+2026-11-20 起默认权重改为 **QAD**(量化感知蒸馏,`nvidia/Qwen3.8-27B-NVFP4-QAD`):
+同为 NVFP4/FP8 混合配方但更多层压到 NVFP4,加载省约 2 GB,质量更接近 BF16。
+`qad` 档(`kv-fp8-text-image-qad.yml`)把省出的显存用于 294912 token 聚合 KV 池与
+8192 chunked prefill;T3/T4/视觉梯度全部通过(证据见该档头部注释)。
+`kv-fp8-text-image`(普通 NVFP4 权重)保留为回退档。注意:**QAD checkpoint 缺 4 个
+`mtp.*` 辅助张量,MTP 投机解码在其上无效**(draft 接受率恒 1.00);需要 MTP 请用
+`fp8vmtp` + 普通权重。
 
 ## 架构
 
@@ -82,8 +90,9 @@ NVIDIA GPU(sm120,32 GB)     NVFP4 权重 + NVFP4/FP8 KV
 ```bash
 git clone https://github.com/mikecovlee/qwen3.8-27b-blackwell-recipe.git
 cd qwen3.8-27b-blackwell-recipe
-make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
-# 其他档位:          make online VARIANT=nvfp4  (32 GB,FP4 KV,4 路)
+make online          # 默认 VARIANT=qad(QAD 权重 + FP8 KV + 视觉,32 GB)
+# 其他档位:          make online VARIANT=fp8v   (普通 NVFP4 权重,回退)
+#                     make online VARIANT=nvfp4  (32 GB,FP4 KV,4 路)
 #                     make online VARIANT=fp8    (32 GB,纯文本,4 路)
 ```
 
@@ -92,8 +101,8 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 派生镜像** `llm-infer:hicache-f832b5c3`(来自 `inference/patches/`:HiCache 混合 Mamba
 补丁;调度器假闩锁补丁已退役——上游 #44401 已修),再按变体叠加: `nvfp4` 构建
 `llm-infer:nvfp4-f832b5c3`(NVFP4 host transport,上游 #46452 移植),`fp8vmtp` 构建
-`llm-infer:spec-f832b5c3`(draft-share),`fp8v` / `fp8` 直接用派生镜像——并拉取网关镜像 → 下载模型到
-`$MODELS_DIR` → 生成 `.env`(随机 `SESSION_SECRET`,各档镜像在 compose 中钉定)→
+`llm-infer:spec-f832b5c3`(draft-share),`qad` / `fp8v` / `fp8` 直接用派生镜像——并拉取网关镜像 → 下载模型到
+`$MODELS_DIR`(`qad` 下载 QAD checkpoint 到 `${MODEL_DIR}-QAD` 后缀目录)→ 生成 `.env`(随机 `SESSION_SECRET`,各档镜像在 compose 中钉定)→
 启动服务并等待 `/health`。
 
 然后打开网关 `http://localhost:8088`,创建用户与令牌,把客户端指向它——见
@@ -105,20 +114,20 @@ make online          # 默认 VARIANT=fp8v(FP8 KV + 视觉,mrr 2,32 GB)
 ```bash
 cp .env.example .env          # 修改 MODELS_DIR 与 SESSION_SECRET
 pip install -U "huggingface_hub[cli]"
-hf download nvidia/Qwen3.8-27B-NVFP4 --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4"
-# 主线(fp8v):钉定 v0.5.23 基座 + 烘焙 HiCache 补丁(四档共用此基座;
+hf download nvidia/Qwen3.8-27B-NVFP4-QAD --local-dir "$MODELS_DIR/Qwen3.8-27B-NVFP4-QAD"
+# 默认(qad):钉定 v0.5.23 基座 + 烘焙 HiCache 补丁(五档共用此基座;
 # 调度器假闩锁补丁已退役,见 inference/patches/)
 # profile 同时设置 SGLANG_HICACHE_MAMBA_SIZE_GB=8.5(见调优节)
 docker pull lmsysorg/sglang@sha256:f832b5c39559c9caa900b22ad37c76fcce66470676855c42052102c537812f1f
 docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
   -t llm-infer:hicache-f832b5c3 inference/patches
-# 变体叠加层(仅 nvfp4 / fp8vmtp 需要;fp8v / fp8 直接用上面的镜像):
+# 变体叠加层(仅 nvfp4 / fp8vmtp 需要;qad / fp8v / fp8 直接用上面的镜像):
 #   docker build -f inference/patches/nvfp4-host-transport/img-f832b5c3/Dockerfile \
 #     -t llm-infer:nvfp4-f832b5c3 inference/patches
 #   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
 #     -t llm-infer:spec-f832b5c3 inference/patches
 docker pull calciumion/new-api:v1.0.0-rc.49
-docker compose --env-file .env -f inference/kv-fp8-text-image.yml up -d
+docker compose --env-file .env -f inference/kv-fp8-text-image-qad.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
 </details>
@@ -128,7 +137,7 @@ docker compose --env-file .env -f gateway/docker-compose.yml up -d
 先在**有网**机器上:
 
 ```bash
-make export          # 生成 bundle/:两个镜像(fp8v 为烘焙补丁的派生镜像)、模型、
+make export          # 生成 bundle/:两个镜像(qad/fp8v 为烘焙补丁的派生镜像)、模型、
                      # 校验和(约 70 GB);VARIANT= 开关同 online
 ```
 
@@ -143,10 +152,10 @@ make offline BUNDLE=/path/to/bundle
 
 ## 配置版本
 
-`inference/` 下有三个各自完整可读的 compose 文件,除下表所列外参数完全一致
+`inference/` 下有五个各自完整可读的 compose 文件,除下表所列外参数完全一致
 (`make check` 会强制校验这一点)。
 
-| 参数 | `kv-fp8-text-image.yml`(**主线默认**,32 GB,v0.5.23 树) | `kv-nvfp4-text-image.yml`(**实验性**,v0.5.23 树,32 GB,4 路) | `kv-fp8-text-only.yml`(v0.5.23 树,32 GB,4 路) |
+| 参数 | `kv-fp8-text-image.yml`(普通回退档,32 GB,v0.5.23 树) | `kv-nvfp4-text-image.yml`(**实验性**,v0.5.23 树,32 GB,4 路) | `kv-fp8-text-only.yml`(v0.5.23 树,32 GB,4 路) |
 | --- | --- | --- | --- |
 | 镜像(默认) | `llm-infer:hicache-f832b5c3`(派生;HiCache 补丁已烘焙) | `llm-infer:nvfp4-f832b5c3`(+ NVFP4 host transport) | `llm-infer:hicache-f832b5c3`(同主线) |
 | `--kv-cache-dtype` | `fp8_e4m3` | `nvfp4` | `fp8_e4m3` |
@@ -163,15 +172,23 @@ make offline BUNDLE=/path/to/bundle
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | `expandable_segments:True` | `expandable_segments:True` |
 | 启动后显存余量(32 GB) | ~1.8 GB | ~2.37 GB | ~0.97 GB |
 
-第四个档是**可选、实验性**的:`kv-fp8-text-image-200k-mtp.yml`(VARIANT `fp8vmtp`,
-镜像 `llm-infer:spec-f832b5c3`)。它就是主线加上 NEXTN/MTP 投机解码,用上下文换
+2026-11-20 起的**默认档**是 `kv-fp8-text-image-qad.yml`(VARIANT `qad`):
+普通主线加三处差异——QAD 权重(模型路径 `${MODEL_DIR:-Qwen3.8-27B-NVFP4}-QAD`)、
+`--max-total-tokens 294912`(聚合池 +32768 token;单请求上下文仍 262144)、
+`--chunked-prefill-size 8192`。QAD 省下的约 2 GB 权重显存正好支付这两项;
+实测余量 2.58 GB,T3/T4/视觉梯度全过(证据见该档头部)。上表其余参数原样继承。
+
+第五个档是**可选、实验性**的:`kv-fp8-text-image-200k-mtp.yml`(VARIANT `fp8vmtp`,
+镜像 `llm-infer:spec-f832b5c3`)。它就是普通主线加上 NEXTN/MTP 投机解码,用上下文换
 decode 速度:池被 `--max-total-tokens` 钉在 **204800**(262144 的 78%),
 `--mem-fraction-static 0.93`、余量 1.79 GB,decode 从 **42.3 提到 61.8-62.6 tok/s
 (1.47×)**。其余(mrr 2、mamba 池 10、prefill 图关、mixed chunk 开、hrrn、HiCache、
 视觉)全部继承主线。
 
-**怎么选?** 先用 **FP8 KV + 视觉**(主线默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
+**怎么选?** 先用 **QAD + FP8 KV + 视觉**(`qad`,默认):32 GB 上满上下文 + 视觉、零 FP4 KV 顾虑,
 代价是 2 路并发(每流 decode 带宽约翻倍),跑在 v0.5.23 树 + 烘焙 HiCache 补丁上。
+回退用 `fp8v`(普通 NVFP4 权重);需要 MTP 投机解码也用普通权重(`fp8vmtp`——QAD
+checkpoint 缺 `mtp.*` 张量,投机在其上无效)。
 **NVFP4 KV + 视觉**档是**实验性**的:仅当同一张卡需要 4 路并发——或 24 GB 卡上它是唯一
 有意义的选择——时才选,且要同时接受**偶发 reasoning 乱码**与**并发超长 prefill 崩溃**
 (见 [NVFP4 注意事项](#nvfp4-注意事项);并发已匹配前缀之和保持在 ~262K token 以下)。
@@ -181,12 +198,14 @@ decode 速度:池被 `--max-total-tokens` 钉在 **204800**(262144 的 78%),
 `tools/concurrency-load.py soak`。
 
 ```bash
-make up                   # 默认:FP8 KV + 视觉,mrr 2(32 GB)
+make up                   # 默认:QAD 权重 + FP8 KV + 视觉,mrr 2(32 GB)
+make up VARIANT=fp8v      # 普通 NVFP4 权重(回退)
 make up VARIANT=nvfp4     # 32 GB,FP4 KV,4 路
 make up VARIANT=fp8       # 32 GB,纯文本,4 路
+make up VARIANT=fp8vmtp   # 可选 200K 上下文 MTP 投机(32 GB,普通权重)
 ```
 
-安装脚本认同一个开关(`make online|offline VARIANT=...`);`fp8v` 预检门槛已降为 32 GB。
+安装脚本认同一个开关(`make online|offline VARIANT=...`);`qad` / `fp8v` 预检门槛为 32 GB。
 
 ## 调优要点
 
@@ -201,8 +220,9 @@ make up VARIANT=fp8       # 32 GB,纯文本,4 路
   **5 × mrr**(ratio 5 = 基础 3 + overlap 2),即池 10 → mrr 2、池 20 → mrr 4。NVFP4 与纯文本档
   (`extra_buffer_lazy`,同一 v0.5.23 树)按每请求 4 槽预算(`池 // 4`):池 16 → mrr 4。
 - CUDA graph 的 decode batch 必须覆盖 mrr,否则大 batch 会静默回退 eager(慢约 60%)。
-- 默认档:`kv-fp8-text-image`(主线)= `262144 / mrr 2 / 池 10 / graph 2 / extra_buffer`
-  (prefill 图开,封顶 2048);NVFP4 与纯文本档 = `262144 / 4 / 16 / 4 / extra_buffer_lazy`
+- 默认档:`kv-fp8-text-image-qad`(默认)= `294912 / mrr 2 / 池 10 / graph 2 / extra_buffer`
+  (cps 8192);`kv-fp8-text-image`(普通回退)= `262144 / mrr 2 / 池 10 / graph 2 / extra_buffer`
+  (cps 6144;两档 prefill 图均关);NVFP4 与纯文本档 = `262144 / 4 / 16 / 4 / extra_buffer_lazy`
   (prefill 图开,封顶 4096 / 3072,同一 v0.5.23 树)。
 - 96 GB 卡可以三个旋钮同步上调(主线 ratio:mrr 6 / 池 30 / graph 8,保持 graph ≥ mrr)。
   闩锁修复已在 v0.5.19 线的 mrr 2 上生产验证(24h+,并于 v0.5.21 上经 T1 门禁复验;v0.5.23 起
@@ -533,13 +553,17 @@ make check     # compose 一致性 + 机密扫描
 ├── LICENSE                     Apache-2.0
 ├── Makefile  .env.example
 ├── inference/
-│   ├── kv-fp8-text-image.yml       主线默认:FP8 KV + 视觉(32 GB,mrr 2,
-│   │                               v0.5.22 树、hrrn、Rust radix 核心、调度器 + hicache 修复:cps 6144)
+│   ├── kv-fp8-text-image-qad.yml   默认:QAD 权重 + FP8 KV + 视觉(32 GB,mrr 2,
+│   │                               294912 token 池,cps 8192;2026-11-20 验收通过)
+│   ├── kv-fp8-text-image.yml       普通回退:FP8 KV + 视觉(32 GB,mrr 2,
+│   │                               v0.5.23 树、hrrn、Rust radix 核心、hicache 修复:cps 6144)
 │   ├── kv-nvfp4-text-image.yml     实验: NVFP4 KV + 视觉(32 GB,mrr 4)
 │   ├── kv-fp8-text-only.yml        FP8 KV,纯文本,4 路(32 GB)
-│   ├── kv-fp8-text-image-200k-mtp.yml  可选:主线 + MTP 投机解码(204800 token 池)
-│   ├── patches/sched-latch-fix/    调度器假闩锁补丁(按钉定镜像一构建一目录)
-│   ├── patches/hicache-mamba-fix/  HiCache 补丁(写通、分配降级、host 池定容)
+│   ├── kv-fp8-text-image-200k-mtp.yml  可选:普通主线 + MTP 投机解码(204800 token 池)
+│   ├── patches/sched-latch-fix/    调度器假闩锁补丁(已退役——上游 #44401;仅存历史)
+│   ├── patches/hicache-mamba-fix/  HiCache 补丁(分配降级、host 池定容)
+│   ├── patches/nvfp4-host-transport/  NVFP4 payload+scale host 传输(#46452 移植)
+│   ├── patches/spec-draft-share/   MTP draft 共享 embed/lm_head(fp8vmtp 镜像)
 │   └── tools/acceptance/           验收门禁(T1 闩锁、T3 mamba stash、T4 hicache)
 ├── gateway/
 │   ├── docker-compose.yml
