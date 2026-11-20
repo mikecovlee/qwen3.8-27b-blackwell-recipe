@@ -17,14 +17,21 @@ MODEL_DIR_NAME="Qwen3.8-27B-NVFP4"
 log() { printf '\033[1;34m[online]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[online] error:\033[0m %s\n' "$*" >&2; exit 1; }
 
-VARIANT="${VARIANT:-fp8v}"
+VARIANT="${VARIANT:-qad}"
 case "$VARIANT" in
   nvfp4) COMPOSE="inference/kv-nvfp4-text-image.yml" ;;
   fp8)   COMPOSE="inference/kv-fp8-text-only.yml" ;;
+  qad)   COMPOSE="inference/kv-fp8-text-image-qad.yml" ;;
   fp8v)  COMPOSE="inference/kv-fp8-text-image.yml" ;;
   fp8vmtp) COMPOSE="inference/kv-fp8-text-image-200k-mtp.yml" ;;
-  *) die "unknown VARIANT '$VARIANT' (use nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
+  *) die "unknown VARIANT '$VARIANT' (use qad | nvfp4 | fp8 | fp8v | fp8vmtp)" ;;
 esac
+# qad profile derives its model path as ${MODEL_DIR}-QAD; download the QAD
+# checkpoint into that suffix directory (.env MODEL_DIR stays the base name).
+if [[ "$VARIANT" == "qad" ]]; then
+  MODEL_REPO="nvidia/Qwen3.8-27B-NVFP4-QAD"
+  MODEL_DIR_NAME="Qwen3.8-27B-NVFP4-QAD"
+fi
 
 log "preflight (variant: $VARIANT)"
 command -v docker >/dev/null || die "docker not found"
@@ -32,7 +39,7 @@ docker compose version >/dev/null 2>&1 || die "docker compose v2 not found"
 command -v nvidia-smi >/dev/null || die "nvidia-smi not found (install the NVIDIA driver)"
 nvidia-smi >/dev/null 2>&1 || die "no usable NVIDIA GPU"
 docker info 2>/dev/null | grep -qi nvidia || log "warning: nvidia container runtime not detected"
-if [[ "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]]; then
+if [[ "$VARIANT" == "qad" || "$VARIANT" == "fp8v" || "$VARIANT" == "fp8vmtp" ]]; then
   mem="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')"
   [[ -n "$mem" && "$mem" -ge 30000 ]] || die "VARIANT=$VARIANT needs a 32 GB+ GPU (detected: ${mem:-?} MiB)"
 fi

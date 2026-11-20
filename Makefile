@@ -1,8 +1,10 @@
 SHELL := /bin/bash
 
-VARIANT ?= fp8v
+VARIANT ?= qad
 ifeq ($(VARIANT),fp8)
 COMPOSE := inference/kv-fp8-text-only.yml
+else ifeq ($(VARIANT),qad)
+COMPOSE := inference/kv-fp8-text-image-qad.yml
 else ifeq ($(VARIANT),fp8v)
 COMPOSE := inference/kv-fp8-text-image.yml
 else ifeq ($(VARIANT),fp8vmtp)
@@ -16,16 +18,16 @@ endif
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-10s %s\n", $$1, $$2}'
 
-online: ## One-click online install (pull images, download model, start) VARIANT=nvfp4|fp8|fp8v|fp8vmtp
+online: ## One-click online install (pull images, download model, start) VARIANT=qad|nvfp4|fp8|fp8v|fp8vmtp
 	VARIANT=$(VARIANT) bash scripts/online/setup.sh
 
 export: ## On a networked machine: build an offline bundle/ directory
 	bash scripts/offline/export.sh
 
-offline: ## On an air-gapped machine: install from bundle/ VARIANT=nvfp4|fp8|fp8v|fp8vmtp
+offline: ## On an air-gapped machine: install from bundle/ VARIANT=qad|nvfp4|fp8|fp8v|fp8vmtp
 	VARIANT=$(VARIANT) bash scripts/offline/setup.sh
 
-up: ## Start services (VARIANT=nvfp4|fp8|fp8v|fp8vmtp)
+up: ## Start services (VARIANT=qad|nvfp4|fp8|fp8v|fp8vmtp)
 	docker compose --env-file .env -f $(COMPOSE) up -d
 	docker compose --env-file .env -f gateway/docker-compose.yml up -d
 

@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 BUNDLE="${1:-bundle}"
-VARIANT="${VARIANT:-fp8v}"
+VARIANT="${VARIANT:-qad}"
 SGLANG_BASE_DIGEST="lmsysorg/sglang@sha256:f832b5c39559c9caa900b22ad37c76fcce66470676855c42052102c537812f1f"
 DERIVED_IMAGE="llm-infer:hicache-f832b5c3"
 SPEC_IMAGE="llm-infer:spec-f832b5c3"
@@ -16,6 +16,10 @@ NVFP4_IMAGE="llm-infer:nvfp4-f832b5c3"
 PATCH_DIR="inference/patches"
 NEWAPI_IMAGE="${NEWAPI_IMAGE:-calciumion/new-api:v1.0.0-rc.49}"
 MODEL_DIR_NAME="${MODEL_DIR:-Qwen3.8-27B-NVFP4}"
+# qad compose derives ${MODEL_DIR}-QAD; pack that suffix directory.
+if [[ "$VARIANT" == "qad" ]]; then
+  MODEL_DIR_NAME="${MODEL_DIR_NAME}-QAD"
+fi
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
 
 log() { printf '\033[1;34m[export]\033[0m %s\n' "$*"; }
