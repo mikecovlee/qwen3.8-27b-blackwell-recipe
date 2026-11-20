@@ -32,7 +32,8 @@ import difflib, json, subprocess, sys
 
 env = sys.argv[1]
 files = ["inference/kv-nvfp4-text-image.yml", "inference/kv-fp8-text-only.yml",
-         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-200k-mtp.yml"]
+         "inference/kv-fp8-text-image.yml", "inference/kv-fp8-text-image-qad.yml",
+         "inference/kv-fp8-text-image-200k-mtp.yml"]
 
 def command(path):
     out = subprocess.run(
@@ -57,7 +58,8 @@ DROP_BOOL = {"--disable-prefill-cuda-graph", "--enable-mixed-chunk"}
 # extra_buffer strategy; the nvfp4/text-only profiles run 4/16/4 + lazy.
 NORM = {"--kv-cache-dtype", "--mem-fraction-static", "--max-total-tokens",
         "--max-running-requests", "--max-mamba-cache-size",
-        "--cuda-graph-max-bs-decode", "--mamba-radix-cache-strategy"}
+        "--cuda-graph-max-bs-decode", "--mamba-radix-cache-strategy",
+        "--model-path"}
 
 def norm(cmd):
     out, i = [], 0
