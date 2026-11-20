@@ -1,0 +1,129 @@
+# SGLang inference server — QAD + FP8 KV + vision + big pool. QAD PROFILE
+# (validated 2026-11-20; consolidates the retired qad-bigkv / qad-mtp experiments).
+# Deltas vs kv-fp8-text-image.yml (plain NVFP4):
+#   0. model path = ${MODEL_DIR:-Qwen3.8-27B-NVFP4}-QAD (suffix derivation, same
+#      env pattern as the plain profile; with the stock .env it resolves to
+#      Qwen3.8-27B-NVFP4-QAD). QAD loads as modelopt_mixed, 17.92 vs ~19.9 GB.
+#      MTP on QAD is NOT viable: the checkpoint lacks mtp.fc / mtp.norm /
+#      mtp.pre_fc_norm_{embedding,hidden} (11 vs 15 mtp tensors) -> draft
+#      accept len 1.00, zero speedup (measured 2026-11-20, full 262K did fit).
+#   1. --max-total-tokens 262144 -> 294912 (+32768 pool tokens, +1 GB FP8 KV).
+#      Per-request context stays 262144 (model max); the extra aggregate pool
+#      lets one full 262K session + one 32K session coexist without eviction.
+#   2. --chunked-prefill-size 6144 -> 8192 (long-prompt prefill speed; 8192
+#      OOMed the plain-weight profile, QAD's ~2 GB weight savings may fit it).
+# Budget: baseline headroom 3.57 GB - 1 GB pool = ~2.5 GB expected, above the
+# 1.79 GB safety line (1.18 GB OOMed T3 historically). Chunk-8192 activation
+# delta unknown -> ACCEPTANCE REQUIRED: T3 verify-mamba-stash.py --expect
+# safe 2/2, T4 verify-hicache-thrash.py, vision peak check.
+# Mamba anchors DROP to 294912/8192 = 36 (vs 43), easing host-mamba pressure.
+# Baseline A/B (2026-11-20, 17250-tok prompt): chunk6144 = 5348 tok/s prefill.
+#
+# RESULTS (2026-11-20, this box):
+#   pool 294912 allocated (K/V 4.5+4.5 GB), available_gpu_mem 2.58 GB (>1.79 line)
+#   prefill A/B: 5359 / 5687 tok/s vs 5348 baseline (~0-6%, modest)
+#   T3 verify-mamba-stash --expect safe: PASS 2/2, 0 crash / 0 restart
+#   T4 verify-hicache-thrash (scaled 1.125x: --a-chars 274950 --bc-chars 106425):
+#      PASS — A cold 146 s, D reload TTFT 0.4 s (host hit), load_back +147200,
+#      0 retraction / 0 exception
+#   Vision ladder (image-limit-ladder.py, 2 Mpx noise PNGs): 1..96 ALL PASS,
+#      GPU peak flat 31626 MiB; 128 -> 400 context ceiling (262460 > 262144
+#      per-request cap), not VRAM. 0 restarts. Profile fully validated.
+# Rollback (plain NVFP4 weights via .env MODEL_DIR): docker compose -p inference \
+#   --project-directory . -f inference/kv-fp8-text-image.yml up -d
+services:
+  sglang:
+    image: llm-infer:hicache-f832b5c3
+    container_name: llm-infer
+    ports:
+      - "${SGLANG_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-$HOME/models}:/models:ro
+      - sglang-cache:/root/.cache
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MAX_JOBS=4
+      - PYTHONUNBUFFERED=1
+      # Reduce fragmentation pressure under the tight runtime headroom.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Hold the v0.5.22 mamba checkpoint working set in host RAM (see IMAGE note).
+      - SGLANG_HICACHE_MAMBA_SIZE_GB=8.5
+    shm_size: 8g
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - /models/${MODEL_DIR:-Qwen3.8-27B-NVFP4}-QAD
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --attention-backend
+      - flashinfer
+      - --mem-fraction-static
+      - "0.94"
+      - --max-total-tokens
+      - "294912"
+      # Chunk size is load-bearing for host reuse: it sets the mamba-anchor
+      # count (kv_pool/cps). 6144 validated on v0.5.21+; 8192 OOMs on 32 GB.
+      - --chunked-prefill-size
+      - "8192"
+      # Mixed chunk: running decode rides inside chunked prefill batches.
+      - --enable-mixed-chunk
+      - --max-mamba-cache-size
+      - "${MAMBA_POOL:-10}"
+      - --mamba-radix-cache-strategy
+      - ${MAMBA_STRATEGY:-extra_buffer}
+      - --mamba-ssm-dtype
+      - bfloat16
+      # Zero-cost safety cap on cached mamba states per radix path.
+      - --mamba-max-states-per-path
+      - "2"
+      - --max-running-requests
+      - "2"
+      - --cuda-graph-max-bs-decode
+      - "2"
+      # Prefill CUDA graph OFF: captured shapes cost ~1.1-1.6 GB; latency cost
+      # of disabling measured at ~0-1% (README "Tuning").
+      - --disable-prefill-cuda-graph
+      - --schedule-policy
+      - hrrn
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # Same served name as the plain profile: gateway/clients unchanged.
+      - --served-model-name
+      - ${MODEL_NAME:-qwen3.8-27b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --enable-metrics
+      # Required for the gateway's cache-hit pricing tier.
+      - --enable-cache-report
+      - --enable-hierarchical-cache
+      - --hicache-ratio
+      - "2"
+      - --hicache-io-backend
+      - kernel
+      - --hicache-mem-layout
+      - page_first
+      # Vision: cap images at 2 Mpx (area), preprocess on CPU. Count guard 128
+      # sits just past the natural ceiling (~127 images fill 262144 tokens).
+      - --mm-process-config
+      - '{"image": {"size": {"longest_edge": 2097152, "shortest_edge": 65536}}}'
+      - --image-processor-backend
+      - pil
+      - --limit-mm-data-per-request
+      - '{"image": 128, "video": 0}'
+
+volumes:
+  sglang-cache:
