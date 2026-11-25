@@ -143,7 +143,7 @@ docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
 #     -t llm-infer:nvfp4-f832b5c3 inference/patches
 #   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
 #     -t llm-infer:spec-f832b5c3 inference/patches
-docker pull calciumion/new-api:v1.0.0-rc.49
+docker pull calciumion/new-api:v1.0.0-rc.51
 docker compose --env-file .env -f inference/kv-fp8-text-image-qad.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
@@ -604,6 +604,30 @@ See [`gateway/`](gateway/). Highlights:
   The SQLite DB holds plaintext token keys, so treat `data/` as a credential store.
 - **Security before exposing to the internet**: put a TLS reverse proxy in front (the
   gateway is plain HTTP), and note the upstream SGLang has no API key by default.
+
+### Gateway version and upgrading
+
+Pinned to **`v1.0.0-rc.51`** in all six places (`.env.example`, `gateway/docker-compose.yml`,
+both installers, both READMEs). `make check` fails if they drift apart. Override with
+`NEWAPI_IMAGE` if you need a different build.
+
+Upstream moved from `Calcium-Ion/new-api` to **`QuantumNous/new-api`**; the Docker image
+name is unchanged, so `calciumion/new-api` still works.
+
+**Upgrading from rc.49 or earlier involves one-way migrations — check your own exposure
+before upgrading, not after:**
+
+| Change | What to check |
+|---|---|
+| Sensitive-word settings become a *Request filter* plugin instance and the old keys are **deleted** | If you had words configured, re-create them as a plugin. A match now returns **400 `request_rejected`** instead of 500 `sensitive_words_detected`. **Rolling back leaves sensitive-word checking off** until you fill it in again. |
+| Finished `system_tasks` older than 30 days are **deleted automatically** | Raise the retention first in *System Settings → Operations → Log Maintenance* if you need that history. Billing/usage rows live elsewhere and are unaffected. |
+| rc.50 crashes with SIGILL on x86-64 CPUs that have AES-NI but **no AVX** ([#8314](https://github.com/QuantumNous/new-api/issues/8314)) | Celeron/Pentium/Atom (e.g. J4125) and some VMs. Looks like intermittent 502s: the model list and admin console still open. **Skip rc.50, go straight to rc.51.** Check with `grep -o avx2 /proc/cpuinfo`. |
+| Image counts are billed from the final upstream request (`batch_size`, `sampleCount`, `num_outputs`) | Only matters if you serve image models through SiliconFlow / Imagen / Replicate. |
+| Multi-node: settings/channels sync within seconds; `CHANNEL_UPDATE_FREQUENCY` balance updates run on the **master node only** | Single-node installs are unaffected. |
+
+To roll back, keep the old image and point `NEWAPI_IMAGE` (or the compose tag) at it, then
+`docker compose -f gateway/docker-compose.yml up -d`. Back up the DB first — and prefer
+`sqlite3 .backup` over copying a live file.
 
 ## Tools
 

@@ -126,7 +126,7 @@ docker build -f inference/patches/hicache-mamba-fix/img-f832b5c3/Dockerfile \
 #     -t llm-infer:nvfp4-f832b5c3 inference/patches
 #   docker build -f inference/patches/spec-draft-share/img-f832b5c3/Dockerfile \
 #     -t llm-infer:spec-f832b5c3 inference/patches
-docker pull calciumion/new-api:v1.0.0-rc.49
+docker pull calciumion/new-api:v1.0.0-rc.51
 docker compose --env-file .env -f inference/kv-fp8-text-image-qad.yml up -d
 docker compose --env-file .env -f gateway/docker-compose.yml up -d
 ```
@@ -517,6 +517,28 @@ host-hit 计数——于 v0.5.20 退役(`host_loaded_length` / `materialized_hos
 - **备份**:`docker cp llm-gateway:/data/one-api.db ./backup.db`(连同 `-wal` 一起拷)。
   SQLite 里 token key 是明文,`data/` 属凭据级。
 - **公网暴露前**:必须加 TLS 反代(网关是明文 HTTP);另注意上游 SGLang 默认无 API key。
+
+### 网关版本与升级
+
+六处统一钉定 **`v1.0.0-rc.51`**(`.env.example`、`gateway/docker-compose.yml`、两个安装脚本、
+双语 README)。`make check` 会在它们不一致时报错。需要别的构建就用 `NEWAPI_IMAGE` 覆盖。
+
+上游仓库已从 `Calcium-Ion/new-api` 迁到 **`QuantumNous/new-api`**;**Docker 镜像名未变**,
+`calciumion/new-api` 照常可用。
+
+**从 rc.49 或更早升级涉及单向迁移——升级前先核对自己的暴露面,别等升完再查:**
+
+| 变更 | 要核对什么 |
+|---|---|
+| 敏感词设置转成「请求过滤」插件实例,旧键被**删除** | 原先配过词表的,要按插件重建。命中由 500 `sensitive_words_detected` 改为 **400 `request_rejected`**。**回滚到旧版后敏感词检查是关闭的**,需重填。 |
+| 超 30 天的已结束 `system_tasks` 被**自动删除** | 需要留更久的,先去 系统设置 → 运维 → 日志维护 改保留天数。计费/用量记录在别的表,不受影响。 |
+| rc.50 在「有 AES-NI 但**无 AVX**」的 x86-64 CPU 上 SIGILL 崩溃([#8314](https://github.com/QuantumNous/new-api/issues/8314)) | Celeron/Pentium/Atom(如 J4125)及部分虚拟机。表现为间歇 502:模型列表和管理后台仍能打开。**跳过 rc.50 直接上 rc.51。** 用 `grep -o avx2 /proc/cpuinfo` 自查。 |
+| 图片按张计费改为按最终发给上游的请求算(`batch_size`、`sampleCount`、`num_outputs`) | 仅当经 SiliconFlow / Imagen / Replicate 提供图像模型时才有影响。 |
+| 多节点:设置/渠道几秒内同步;`CHANNEL_UPDATE_FREQUENCY` 定时余额更新**只在主节点**跑 | 单节点部署不受影响。 |
+
+回滚:保留旧镜像,把 `NEWAPI_IMAGE`(或 compose tag)指回去,再
+`docker compose -f gateway/docker-compose.yml up -d`。先备份数据库——并且优先用
+`sqlite3 .backup`,别直接拷正在写入的库文件。
 
 ## 工具
 

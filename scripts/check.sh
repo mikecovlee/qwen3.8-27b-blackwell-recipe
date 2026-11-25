@@ -90,6 +90,38 @@ if ok:
 sys.exit(1)
 PY
 
+echo "== gateway image pin: cross-file consistency =="
+python3 - <<'PY' || fail=1
+import re, sys
+from pathlib import Path
+
+sites = [".env.example", "gateway/docker-compose.yml", "scripts/offline/export.sh",
+         "scripts/online/setup.sh", "README.md", "README-zh.md"]
+pat = re.compile(r"calciumion/new-api:([^\s\"'}]+)")
+
+found, missing = {}, []
+for s in sites:
+    p = Path(s)
+    if not p.exists():
+        missing.append(s); continue
+    tags = set(pat.findall(p.read_text()))
+    if not tags:
+        missing.append(s)
+    for t in tags:
+        found.setdefault(t, []).append(s)
+
+if missing:
+    print(f"  FAIL: no pin found in: {', '.join(missing)}")
+    sys.exit(1)
+if len(found) > 1:
+    print("  FAIL: gateway image pin drifted across files:")
+    for t, files in sorted(found.items()):
+        print(f"    {t}  <- {', '.join(files)}")
+    sys.exit(1)
+tag, files = next(iter(found.items()))
+print(f"  OK: all {len(files)} sites pinned to {tag}")
+PY
+
 echo "== hygiene: secret scan =="
 # Generic secret patterns. Extend with your own (ERE, '|'-joined) via HYGIENE_EXTRA.
 PATTERNS='SESSION_SECRET=[0-9a-fA-F]{16,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
